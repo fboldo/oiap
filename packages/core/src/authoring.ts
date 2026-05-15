@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { HookDefinition, TargetModuleRef } from "./hooks";
 import type {
 	AgentDefinition,
@@ -21,6 +24,11 @@ import type {
 } from "./primitives";
 
 export const CURRENT_OIAP_CORE_VERSION = "0.0.0";
+
+export interface MarkdownFileOptions {
+	baseDir?: string;
+	baseUrl?: string | URL;
+}
 
 export interface PluginDefinition {
 	manifest?: PluginManifest;
@@ -60,6 +68,19 @@ export function definePlugin<const TDefinition extends PluginDefinition>(
 	} as DefinedPlugin<TDefinition>;
 }
 
+export function markdownFile(
+	filePath: string | URL,
+	options: MarkdownFileOptions = {},
+): string {
+	const resolvedPath = resolveMarkdownFilePath(filePath, options);
+
+	if (!existsSync(resolvedPath)) {
+		throw new Error(`Markdown file not found: ${resolvedPath}`);
+	}
+
+	return readFileSync(resolvedPath, "utf8");
+}
+
 export function toPluginIr(definition: PluginDefinition): PluginIr {
 	return {
 		manifest: definition.manifest,
@@ -96,4 +117,62 @@ export function defineExporter<const TExporter extends PlatformExporter>(
 	exporter: TExporter,
 ): TExporter {
 	return exporter;
+}
+
+function resolveMarkdownFilePath(
+	filePath: string | URL,
+	options: MarkdownFileOptions,
+): string {
+	if (filePath instanceof URL) {
+		return fileURLToPath(filePath);
+	}
+
+	if (isAbsolute(filePath)) {
+		return filePath;
+	}
+
+	const baseDir =
+		options.baseDir ??
+		(options.baseUrl ? dirname(fileURLToPath(options.baseUrl)) : undefined) ??
+		inferCallerDirectory() ??
+		process.cwd();
+
+	return resolve(baseDir, filePath);
+}
+
+function inferCallerDirectory(): string | undefined {
+	const stack = new Error().stack;
+
+	if (!stack) {
+		return undefined;
+	}
+
+	const authoringFile = fileURLToPath(import.meta.url);
+
+	for (const line of stack.split("\n").slice(1)) {
+		const filePath = stackFrameFilePath(line);
+
+		if (!filePath || filePath === authoringFile) {
+			continue;
+		}
+
+		return dirname(filePath);
+	}
+
+	return undefined;
+}
+
+function stackFrameFilePath(line: string): string | undefined {
+	const match = line.match(/\(?((?:file:\/\/)?\/.*?):\d+:\d+\)?$/);
+	const rawPath = match?.[1];
+
+	if (!rawPath) {
+		return undefined;
+	}
+
+	try {
+		return rawPath.startsWith("file://") ? fileURLToPath(rawPath) : rawPath;
+	} catch {
+		return undefined;
+	}
 }

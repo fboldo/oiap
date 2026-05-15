@@ -27,3 +27,24 @@ export default definePlugin({
 
 The package intentionally contains contracts and small authoring helpers only.
 Target-specific rendering belongs in exporter packages.
+
+Long Markdown instruction bodies can live beside the plugin file instead of in
+template strings:
+
+```ts
+import { definePlugin, markdownFile } from "@oiap/core";
+
+export default definePlugin({
+	instructions: [
+		{
+			id: "review-workflow",
+			purpose: "workflow",
+			triggers: ["review"],
+			body: markdownFile("instructions/review-workflow.md"),
+		},
+	],
+});
+```
+
+Relative paths resolve from the calling module. Pass `baseUrl: import.meta.url`
+when you want to make that relationship explicit.
