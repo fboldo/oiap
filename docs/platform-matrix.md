@@ -53,7 +53,7 @@ canonical repository, or vendor-owned release note is found.
 | Kimi Code | Needs verified official source | needs verification | Keep as skill/MCP target until official docs are found. |
 | Kiro IDE/CLI | Needs verified official source | needs verification | Confirm Agent Skills, steering, hooks, MCP, specs, and policy controls from official docs. |
 | Pi coding agent | Needs verified official source | needs verification | Keep as thin target until official extension surfaces are verified. |
-| Cursor | <https://docs.cursor.com/> | official docs | Verify rules, nested agent guidance, MCP, and agent/tool behavior. |
+| Cursor | <https://cursor.com/docs> | official docs | Verify plugins, rules, skills, commands, agents, hooks, MCP, and nested agent guidance. |
 | Google Antigravity | Needs verified official source | needs verification | Confirm rules, workflows, skills, MCP, permissions, task groups, and browser subagent behavior. |
 
 ## Capability Matrix
@@ -75,16 +75,16 @@ canonical repository, or vendor-owned release note is found.
 | Kimi Code | thin | ? | F | P | F | ? | ? | P | F | ? | `packages/exporter-kimi-code` |
 | Kiro IDE/CLI | core | P | Y | Y | P | Y | P | Y | F | P | `packages/exporter-kiro` |
 | Pi coding agent | thin | ? | F | F | F | ? | ? | ? | F | ? | `packages/exporter-pi` |
-| Cursor | editor | P | Y | P | P | ? | P | Y | F | P | `packages/exporter-cursor` |
+| Cursor | editor | Y | Y | Y | Y | Y | Y | Y | P | P | `packages/exporter-cursor` |
 | Google Antigravity | core | P | Y | Y | Y | P | Y | Y | F | Y | `packages/exporter-antigravity` |
 
 ## Adapter Status
 
-The repository now contains initial Claude Code, Codex, OpenClaw, and VS Code
-Copilot exporter packages at `packages/exporter-claude-code`,
-`packages/exporter-codex`, `packages/exporter-openclaw`, and
-`packages/exporter-vscode-copilot`. Other adapter paths in the matrix remain
-proposed package locations until implemented.
+The repository now contains initial Claude Code, Codex, Cursor, OpenClaw, and VS
+Code Copilot exporter packages at `packages/exporter-claude-code`,
+`packages/exporter-codex`, `packages/exporter-cursor`,
+`packages/exporter-openclaw`, and `packages/exporter-vscode-copilot`. Other
+adapter paths in the matrix remain proposed package locations until implemented.
 
 When adapter packages are added, each target should expose:
 
@@ -202,8 +202,11 @@ and capability reports conservatively.
 
 ### Cursor
 
-Editor target. Verify project/user/team rules, nested `AGENTS.md` behavior, MCP,
-agent behavior, and any command or hook-like surfaces.
+Editor plugin target. Cursor plugins use `.cursor-plugin/plugin.json`, `.mdc`
+rule files in `rules/`, Agent Skills in `skills/`, custom agent markdown files
+in `agents/`, command markdown files in `commands/`, `hooks/hooks.json`, and
+root `mcp.json`. OIAP emits plugin bundles for those native surfaces and records
+policy-specific lowering gaps in the capability report.
 
 ### Google Antigravity
 
@@ -232,6 +235,7 @@ validation.
 | --- | --- | --- | --- | --- |
 | 2026-05-15 | Claude Code | Initial exporter package | Static renderer and generated raw-JS hook runtime exist | Add conformance probes before claiming full support |
 | 2026-05-15 | Codex | Initial exporter package | Plugin/config renderer and generated raw-JS hook runtime exist; command-to-skill fallback remains | Add Codex conformance probes and compare against plugin validation when available |
+| 2026-05-15 | Cursor | Initial exporter package | Cursor plugin renderer and generated raw-JS hook runtime exist for documented plugin component folders | Add Cursor plugin diagnostics/conformance probes for `.cursor-plugin/plugin.json`, rules, skills, agents, commands, hooks, and MCP |
 | 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |
 | 2026-05-15 | VS Code Copilot Chat | Initial exporter package | Copilot-format plugin renderer and generated raw-JS hook runtime exist; hook runner paths are plugin-relative because Copilot format has no root token | Add VS Code plugin diagnostics/conformance probes for root `plugin.json`, prompt commands, skills, agents, hooks, and MCP |
 | 2026-05-15 | all remaining targets | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |

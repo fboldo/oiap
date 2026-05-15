@@ -45,7 +45,7 @@ agent ecosystem:
 | Kimi Code | Skill and MCP bundle until official surfaces are confirmed |
 | Kiro IDE/CLI | Agent Skills, steering files, hooks, MCP, specs |
 | Pi coding agent | Thin skill bundle until official surfaces are confirmed |
-| Cursor | Project/User/Team rules, `AGENTS.md`, agent tool expectations |
+| Cursor | Plugin package, rules, skills, commands, custom agents, hooks, MCP |
 | Google Antigravity | Rules, workflows, skills, MCP configuration, permissions, task groups |
 
 This table is not an adoption workflow. It is an export matrix: each row answers
@@ -624,9 +624,10 @@ The exporter should render clear instructions and a capability report.
 
 ### Cursor
 
-Cursor is a rule and editor-agent target. OIAP should export `.cursor/rules`
-assets with frontmatter, nested `AGENTS.md` guidance where useful, and tool
-expectation metadata.
+Cursor is an editor plugin target. OIAP should export Cursor plugin directories
+with `.cursor-plugin/plugin.json`, `rules/`, `skills/`, `agents/`, `commands/`,
+`hooks/hooks.json`, and `mcp.json` components, then report any policy-specific
+or runtime-specific gaps in the capability report.
 
 ### Google Antigravity
 

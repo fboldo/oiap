@@ -9,6 +9,7 @@ import {
 	exportClaudeCode,
 } from "@oiap/exporter-claude-code";
 import { CODEX_TARGET, exportCodex } from "@oiap/exporter-codex";
+import { CURSOR_TARGET, exportCursor } from "@oiap/exporter-cursor";
 import { exportOpenClaw, OPENCLAW_TARGET } from "@oiap/exporter-openclaw";
 import {
 	exportVsCodeCopilot,
@@ -33,6 +34,11 @@ export const exporterRegistry = {
 		target: CODEX_TARGET,
 		packageName: "@oiap/exporter-codex",
 		exportBundle: exportCodex,
+	},
+	[CURSOR_TARGET]: {
+		target: CURSOR_TARGET,
+		packageName: "@oiap/exporter-cursor",
+		exportBundle: exportCursor,
 	},
 	[OPENCLAW_TARGET]: {
 		target: OPENCLAW_TARGET,

@@ -653,6 +653,10 @@ function mapHookResult(options: {
 		return mapVsCodeHookResult(options.result, options.hook);
 	}
 
+	if (options.target === "cursor") {
+		return mapCursorHookResult(options.result, options.hook);
+	}
+
 	const envelope = {
 		oiap: {
 			runtime: "generated-js",
@@ -685,6 +689,10 @@ function mapHookFailure(options: {
 
 	if (options.target === "vscode-copilot-chat") {
 		return mapVsCodeHookFailure(decision, options.hook, message);
+	}
+
+	if (options.target === "cursor") {
+		return mapCursorHookFailure(decision, options.hook, message);
 	}
 
 	const envelope = {
@@ -746,6 +754,123 @@ function mapVsCodeHookFailure(
 		stderr: `${message}\n`,
 		exitCode: 0,
 	};
+}
+
+function mapCursorHookResult(
+	result: HookResult,
+	hook: HookRuntimeHook,
+): MappedHookResult {
+	return {
+		stdout: `${JSON.stringify(cursorHookOutput(result, hook))}\n`,
+		stderr: "",
+		exitCode: 0,
+	};
+}
+
+function mapCursorHookFailure(
+	decision: HookResult,
+	hook: HookRuntimeHook,
+	message: string,
+): MappedHookResult {
+	return {
+		stdout: `${JSON.stringify(cursorHookOutput(decision, hook))}\n`,
+		stderr: `${message}\n`,
+		exitCode: decision.decision === "block" ? 2 : 0,
+	};
+}
+
+function cursorHookOutput(
+	result: HookResult,
+	hook: HookRuntimeHook,
+): UnknownRecord {
+	const hookEventName = hook.targetEvent ?? hook.event;
+
+	if (isCursorPermissionEvent(hookEventName)) {
+		return {
+			permission: cursorPermission(result, hookEventName),
+			user_message: cursorUserMessage(result),
+			agent_message: cursorAgentMessage(result),
+		};
+	}
+
+	if (hookEventName === "beforeSubmitPrompt") {
+		return result.decision === "block"
+			? { continue: false, user_message: cursorUserMessage(result) }
+			: { continue: true };
+	}
+
+	if (hookEventName === "postToolUse") {
+		if (result.decision === "inject_context") {
+			return { additional_context: resultString(result, "content") };
+		}
+
+		if (result.decision === "replace_result") {
+			return { updated_mcp_tool_output: result.result };
+		}
+	}
+
+	if (hookEventName === "sessionStart") {
+		return {
+			env: asOptionalRecord(result.env),
+			additional_context:
+				result.decision === "inject_context"
+					? resultString(result, "content")
+					: undefined,
+		};
+	}
+
+	if (hookEventName === "stop" || hookEventName === "subagentStop") {
+		return result.decision === "inject_context"
+			? { followup_message: resultString(result, "content") }
+			: {};
+	}
+
+	if (hookEventName === "preCompact") {
+		return { user_message: cursorUserMessage(result) };
+	}
+
+	return {};
+}
+
+function isCursorPermissionEvent(hookEventName: string): boolean {
+	return new Set([
+		"preToolUse",
+		"subagentStart",
+		"beforeShellExecution",
+		"beforeMCPExecution",
+		"beforeReadFile",
+		"beforeTabFileRead",
+	]).has(hookEventName);
+}
+
+function cursorPermission(
+	result: HookResult,
+	hookEventName: string,
+): "allow" | "deny" | "ask" {
+	if (result.decision === "block") {
+		return "deny";
+	}
+
+	if (result.decision === "ask") {
+		return hookEventName === "beforeShellExecution" ||
+			hookEventName === "beforeMCPExecution" ||
+			hookEventName === "preToolUse"
+			? "ask"
+			: "deny";
+	}
+
+	return "allow";
+}
+
+function cursorUserMessage(result: HookResult): string | undefined {
+	return (
+		resultMessage(result) ??
+		(result.decision === "block" ? blockMessage(result) : undefined)
+	);
+}
+
+function cursorAgentMessage(result: HookResult): string | undefined {
+	return resultMessage(result);
 }
 
 function vsCodeHookOutput(result: HookResult, hook: HookRuntimeHook) {

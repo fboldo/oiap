@@ -1,0 +1,16 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"declaration": true,
+		"declarationMap": true,
+		"noEmit": false,
+		"outDir": "dist",
+		"paths": {
+			"@oiap/core": ["../core/dist/index.d.ts"],
+			"@oiap/runtime": ["../runtime/dist/index.d.ts"]
+		},
+		"rootDir": "src",
+		"sourceMap": true
+	},
+	"exclude": ["dist", "**/*.test.ts"]
+}

@@ -24,6 +24,7 @@
         "@oiap/core": "workspace:*",
         "@oiap/exporter-claude-code": "workspace:*",
         "@oiap/exporter-codex": "workspace:*",
+        "@oiap/exporter-cursor": "workspace:*",
         "@oiap/exporter-openclaw": "workspace:*",
         "@oiap/exporter-vscode-copilot": "workspace:*",
       },
@@ -51,6 +52,17 @@
     },
     "packages/exporter-codex": {
       "name": "@oiap/exporter-codex",
+      "version": "0.0.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
+        "@oiap/runtime": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/exporter-cursor": {
+      "name": "@oiap/exporter-cursor",
       "version": "0.0.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
@@ -119,6 +131,8 @@
     "@oiap/exporter-claude-code": ["@oiap/exporter-claude-code@workspace:packages/exporter-claude-code"],
 
     "@oiap/exporter-codex": ["@oiap/exporter-codex@workspace:packages/exporter-codex"],
+
+    "@oiap/exporter-cursor": ["@oiap/exporter-cursor@workspace:packages/exporter-cursor"],
 
     "@oiap/exporter-openclaw": ["@oiap/exporter-openclaw@workspace:packages/exporter-openclaw"],
 

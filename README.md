@@ -21,6 +21,7 @@ Currently, the most notable effort in this space is the [Open Plugin Spec](https
 - [@oiap/cli](packages/cli) builds target bundles from plugin definition files.
 - [@oiap/exporter-claude-code](packages/exporter-claude-code) exports OIAP plugins into Claude Code-oriented bundle artifacts.
 - [@oiap/exporter-codex](packages/exporter-codex) exports OIAP plugins into Codex plugin and project-configuration artifacts.
+- [@oiap/exporter-cursor](packages/exporter-cursor) exports OIAP plugins into Cursor plugin artifacts.
 - [@oiap/exporter-openclaw](packages/exporter-openclaw) exports OIAP plugins into native OpenClaw plugin package artifacts.
 - [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) exports OIAP plugins into VS Code Copilot agent plugin artifacts.
 

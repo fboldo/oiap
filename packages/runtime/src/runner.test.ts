@@ -139,6 +139,41 @@ export async function askForToolReview(context) {
 		});
 	});
 
+	test("maps Cursor hook results to Cursor hook output", async () => {
+		const fixture = await writeRunnerFixture({
+			target: "cursor",
+			hooksSource: `
+export async function askForToolReview(context) {
+	return {
+		decision: "ask",
+		message: "Review " + context.input.tool.name + " " + context.input.arguments.command,
+	};
+}
+`,
+			hook: {
+				id: "ask-tool",
+				event: "before_tool",
+				targetEvent: "preToolUse",
+				exportName: "askForToolReview",
+			},
+		});
+
+		const result = await runRunner(fixture, {
+			input: JSON.stringify({
+				tool_name: "Shell",
+				tool_input: { command: "pwd" },
+			}),
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(JSON.parse(result.stdout)).toEqual({
+			permission: "ask",
+			user_message: "Review Shell pwd",
+			agent_message: "Review Shell pwd",
+		});
+	});
+
 	test("turns fail-open hook failures into allow results", async () => {
 		const fixture = await writeRunnerFixture({
 			hooksSource: `
