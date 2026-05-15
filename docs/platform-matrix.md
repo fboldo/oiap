@@ -39,12 +39,12 @@ canonical repository, or vendor-owned release note is found.
 | Target | Official or canonical source | Status | Notes |
 | --- | --- | --- | --- |
 | Claude Code | <https://docs.anthropic.com/en/docs/claude-code/overview> | official docs | Verify feature-specific pages for plugins, skills, commands, hooks, MCP, and settings. |
-| Codex | <https://github.com/openai/codex> | canonical repository | Prefer repo docs and release notes unless OpenAI publishes a dedicated Codex CLI docs site. |
+| Codex | <https://developers.openai.com/codex> | official docs | Verify plugins, skills, AGENTS.md, hooks, MCP, subagents, rules, approvals, and sandbox settings. |
 | OpenCode | <https://opencode.ai/docs> | official docs | Verify the JavaScript extension API and hook/event surfaces. |
 | GitHub Copilot CLI | <https://docs.github.com/en/copilot> | official docs | Verify whether CLI-specific extension surfaces still exist and are current. |
 | VS Code Copilot Chat | <https://code.visualstudio.com/docs/copilot/overview> | official docs | Also verify customization docs for skills, prompts, instructions, agents, hooks, and MCP. |
 | Aider | <https://aider.chat/docs/> | official docs | Verify configuration, slash commands, watch mode, and MCP status. |
-| OpenClaw | Needs verified official source | needs verification | Keep as thin target until an official source is identified. |
+| OpenClaw | <https://docs.openclaw.ai/plugins/building-plugins> | official docs | Verify native plugin manifests, package metadata, skills, tools, commands, hooks, and bundle compatibility. |
 | Factory Droid | Needs verified official source | needs verification | Confirm Factory-owned docs for plugins, Droids, hooks, MCP, and enterprise registry behavior. |
 | Trae | Needs verified official source | needs verification | Confirm vendor-owned docs for rules, context, custom agents, and MCP tools. |
 | Trae CN | Needs verified official source | needs verification | Confirm regional docs and feature parity before copying Trae assumptions. |
@@ -66,7 +66,7 @@ canonical repository, or vendor-owned release note is found.
 | GitHub Copilot CLI | thin | ? | P | ? | P | N | N | ? | F | N | `packages/exporter-github-copilot-cli` |
 | VS Code Copilot Chat | editor | P | Y | Y | P | P | P | Y | F | P | `packages/exporter-vscode-copilot-chat` |
 | Aider | workflow | N | P | N | P | P | N | ? | F | P | `packages/exporter-aider` |
-| OpenClaw | thin | ? | F | F | F | ? | ? | ? | F | ? | `packages/exporter-openclaw` |
+| OpenClaw | core | Y | F | Y | P | Y | P | P | F | P | `packages/exporter-openclaw` |
 | Factory Droid | core | Y | P | Y | Y | Y | Y | Y | F | Y | `packages/exporter-factory-droid` |
 | Trae | editor | P | Y | ? | P | ? | Y | Y | F | P | `packages/exporter-trae` |
 | Trae CN | regional | P | Y | ? | P | ? | Y | Y | F | P | `packages/exporter-trae-cn` |
@@ -80,8 +80,10 @@ canonical repository, or vendor-owned release note is found.
 
 ## Adapter Status
 
-The current repository does not yet contain adapter packages. Until packages are
-implemented, every adapter path in the matrix is a proposed package location.
+The repository now contains initial Claude Code, Codex, and OpenClaw exporter
+packages at `packages/exporter-claude-code`, `packages/exporter-codex`, and
+`packages/exporter-openclaw`. Other adapter paths in the matrix remain proposed
+package locations until implemented.
 
 When adapter packages are added, each target should expose:
 
@@ -146,8 +148,11 @@ available in the current release.
 
 ### OpenClaw
 
-Thin target until official extension surfaces are verified. Export conservative
-instructions and explicit unsupported-capability reports.
+Native plugin target. OpenClaw plugins ship `package.json` metadata,
+`openclaw.plugin.json` manifests, `definePluginEntry` runtime entrypoints,
+AgentSkills-compatible skill folders, tool contracts, command metadata, and
+typed `api.on(...)` hook registrations. OIAP currently exports command and rule
+fallbacks as skills and records MCP/policy/runtime gaps in capability reports.
 
 ### Factory Droid
 
@@ -217,9 +222,12 @@ When refreshing the matrix:
 
 ## Adapter Review Queue
 
-No adapters exist yet. Once exporters are implemented, use this section to record
-mismatches found by recurring refreshes.
+Use this section to record mismatches found by recurring refreshes and exporter
+validation.
 
 | Date | Target | Matrix capability | Adapter state | Action |
 | --- | --- | --- | --- | --- |
-| 2026-05-15 | all | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |
+| 2026-05-15 | Claude Code | Initial exporter package | Static renderer and generated raw-JS hook runtime exist | Add conformance probes before claiming full support |
+| 2026-05-15 | Codex | Initial exporter package | Plugin/config renderer and generated raw-JS hook runtime exist; command-to-skill fallback remains | Add Codex conformance probes and compare against plugin validation when available |
+| 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |
+| 2026-05-15 | all remaining targets | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |

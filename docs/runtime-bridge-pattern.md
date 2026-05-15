@@ -332,19 +332,22 @@ TypeScript hook.
 
 ## Hook Runner
 
-The hook runner is the small executable boundary that loads compiled hooks and
-executes them with a standard context.
+The hook runner is the small executable boundary that loads bundled hooks and
+executes them with a standard context. OIAP's first implementation emits a raw
+JavaScript runtime into each bundle so hook execution does not depend on `npx` or
+registry access at host runtime.
 
 ```text
-oiap-hook-runner
-  --manifest hook-manifest.json
-  --runtime node
-  --stdio
+node .oiap/runtime/runner.mjs run-hook
+  --manifest .oiap/runtime/manifest.json
+  --target codex
+  --event before_tool
+  --hook protect-prod
 ```
 
 Responsibilities:
 
-- Load compiled hook modules.
+- Load generated hook modules from `.oiap/runtime/hooks.mjs`.
 - Validate hook input and output schemas.
 - Build `HookContext`.
 - Provide standard services.
@@ -352,8 +355,10 @@ Responsibilities:
 - Enforce declared capabilities where possible.
 - Return a serialized `HookResult`.
 
-The runner can be distributed as JavaScript for Node/Bun/Deno environments or as
-a compiled binary when a target bundle needs fewer runtime assumptions.
+The runner is generated from `@oiap/runtime` at bundle time. Portable author
+functions are serialized into raw JavaScript; target-module hooks or functions
+that cannot be serialized are surfaced as degraded metadata rather than silently
+claimed as executable.
 
 ## Async, Deadlines, And Cancellation
 

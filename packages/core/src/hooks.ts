@@ -29,11 +29,18 @@ export interface HookContext<E extends HookEvent = HookEvent> {
 	log: HookLogger;
 }
 
-export type HookFunction<E extends HookEvent = HookEvent> = (context: HookContext<E>) => Awaitable<HookResult>;
+export type HookFunction<E extends HookEvent = HookEvent> = (
+	context: HookContext<E>,
+) => Awaitable<HookResult>;
 
-export type HookHandler<E extends HookEvent = HookEvent> = HookFunction<E> | TargetModuleRef;
+export type HookHandler<E extends HookEvent = HookEvent> =
+	| HookFunction<E>
+	| TargetModuleRef;
 
-export interface HookDefinition<E extends HookEvent = HookEvent, TId extends string = string> {
+export interface HookDefinition<
+	E extends HookEvent = HookEvent,
+	TId extends string = string,
+> {
 	kind: "oiap.hook";
 	id: TId;
 	event: E;
@@ -55,9 +62,16 @@ export interface HookOptions<E extends HookEvent = HookEvent> {
 	fallback?: HookFallback;
 }
 
-export type HookFailureMode = "fail_closed" | "fail_open" | "ask_user" | "use_fallback_rule" | "log_only";
+export type HookFailureMode =
+	| "fail_closed"
+	| "fail_open"
+	| "ask_user"
+	| "use_fallback_rule"
+	| "log_only";
 
-export type HookMatcher<E extends HookEvent = HookEvent> = Partial<HookInput<E>> | HookMatcherExpression;
+export type HookMatcher<E extends HookEvent = HookEvent> =
+	| Partial<HookInput<E>>
+	| HookMatcherExpression;
 
 export interface HookMatcherExpression {
 	kind: "expression";
@@ -141,7 +155,10 @@ export interface HookServices {
 }
 
 export interface HookFetch {
-	json<TResult = JsonValue>(url: string, options?: HookFetchOptions): Promise<TResult>;
+	json<TResult = JsonValue>(
+		url: string,
+		options?: HookFetchOptions,
+	): Promise<TResult>;
 	text(url: string, options?: HookFetchOptions): Promise<string>;
 }
 
@@ -154,20 +171,43 @@ export interface HookFetchOptions {
 }
 
 export interface HookDatabaseClient {
-	query<TResult = JsonValue>(ref: string, operation: string | JsonObject, parameters?: JsonObject): Promise<TResult>;
-	transaction<TResult>(ref: string, handler: HookDatabaseTransactionHandler<TResult>): Promise<TResult>;
+	query<TResult = JsonValue>(
+		ref: string,
+		operation: string | JsonObject,
+		parameters?: JsonObject,
+	): Promise<TResult>;
+	transaction<TResult>(
+		ref: string,
+		handler: HookDatabaseTransactionHandler<TResult>,
+	): Promise<TResult>;
 }
 
-export type HookDatabaseTransactionHandler<TResult> = (transaction: HookDatabaseTransaction) => Awaitable<TResult>;
+export type HookDatabaseTransactionHandler<TResult> = (
+	transaction: HookDatabaseTransaction,
+) => Awaitable<TResult>;
 
 export interface HookDatabaseTransaction {
-	query<TResult = JsonValue>(operation: string | JsonObject, parameters?: JsonObject): Promise<TResult>;
-	insert<TResult = JsonValue>(table: string, values: JsonObject): Promise<TResult>;
-	update<TResult = JsonValue>(table: string, values: JsonObject, where: JsonObject): Promise<TResult>;
+	query<TResult = JsonValue>(
+		operation: string | JsonObject,
+		parameters?: JsonObject,
+	): Promise<TResult>;
+	insert<TResult = JsonValue>(
+		table: string,
+		values: JsonObject,
+	): Promise<TResult>;
+	update<TResult = JsonValue>(
+		table: string,
+		values: JsonObject,
+		where: JsonObject,
+	): Promise<TResult>;
 }
 
 export interface HookProcessRunner {
-	run(command: string, args?: string[], options?: HookProcessOptions): Promise<HookProcessResult>;
+	run(
+		command: string,
+		args?: string[],
+		options?: HookProcessOptions,
+	): Promise<HookProcessResult>;
 }
 
 export interface HookProcessOptions {
@@ -185,8 +225,15 @@ export interface HookProcessResult {
 }
 
 export interface HookMcpClient {
-	callTool<TResult = JsonValue>(serverRef: string, toolName: string, args?: JsonObject): Promise<TResult>;
-	readResource<TResult = JsonValue>(serverRef: string, uri: string): Promise<TResult>;
+	callTool<TResult = JsonValue>(
+		serverRef: string,
+		toolName: string,
+		args?: JsonObject,
+	): Promise<TResult>;
+	readResource<TResult = JsonValue>(
+		serverRef: string,
+		uri: string,
+	): Promise<TResult>;
 }
 
 export interface HookSecretStore {

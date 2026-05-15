@@ -1,4 +1,8 @@
-import type { JsonPatchOperation, ScheduledJob, ScheduledJobRef } from "./primitives";
+import type {
+	JsonPatchOperation,
+	ScheduledJob,
+	ScheduledJobRef,
+} from "./primitives";
 
 export interface DecisionAnnotation {
 	key: string;
@@ -96,11 +100,15 @@ export function modify(options: ModifyOptions): ModifyHookResult {
 	return { decision: "modify", ...options };
 }
 
-export function injectContext(options: InjectContextOptions): InjectContextHookResult {
+export function injectContext(
+	options: InjectContextOptions,
+): InjectContextHookResult {
 	return { decision: "inject_context", ...options };
 }
 
-export function replaceResult(options: ReplaceResultOptions): ReplaceResultHookResult {
+export function replaceResult(
+	options: ReplaceResultOptions,
+): ReplaceResultHookResult {
 	return { decision: "replace_result", ...options };
 }
 

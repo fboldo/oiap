@@ -1,3 +1,5 @@
+import type { HookDefinition } from "./hooks";
+
 export type JsonPrimitive = string | number | boolean | null;
 
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -37,7 +39,13 @@ export type RuntimeLanguage =
 	| "wasm"
 	| "native";
 
-export type ShellDialect = "posix" | "bash" | "zsh" | "fish" | "powershell" | "cmd";
+export type ShellDialect =
+	| "posix"
+	| "bash"
+	| "zsh"
+	| "fish"
+	| "powershell"
+	| "cmd";
 
 export type CapabilityKind =
 	| "package"
@@ -85,7 +93,12 @@ export interface Invocation {
 	examples: string[];
 }
 
-export type InstructionPurpose = "command" | "always_on" | "workflow" | "safety" | "agent";
+export type InstructionPurpose =
+	| "command"
+	| "always_on"
+	| "workflow"
+	| "safety"
+	| "agent";
 
 export interface InstructionModule {
 	id: string;
@@ -132,12 +145,23 @@ export type WorkflowStep =
 	| { kind: "run_command"; recipe: CommandRecipeRef; id?: string }
 	| { kind: "read_file"; path: string; id?: string }
 	| { kind: "write_file"; path: string; content: string; id?: string }
-	| { kind: "patch_file"; path: string; patch: JsonPatchOperation[]; id?: string }
+	| {
+			kind: "patch_file";
+			path: string;
+			patch: JsonPatchOperation[];
+			id?: string;
+	  }
 	| { kind: "spawn_workers"; strategy: DelegationStrategyRef; id?: string }
 	| { kind: "call_tool"; tool: ToolRef; arguments?: JsonObject; id?: string }
 	| { kind: "start_mcp_server"; server: McpServerRef; id?: string }
 	| { kind: "ask_user"; prompt: string; schema?: JsonSchema; id?: string }
-	| { kind: "conditional"; condition: string; then: WorkflowStep[]; otherwise?: WorkflowStep[]; id?: string };
+	| {
+			kind: "conditional";
+			condition: string;
+			then: WorkflowStep[];
+			otherwise?: WorkflowStep[];
+			id?: string;
+	  };
 
 export interface FailurePolicy {
 	mode: "fail_fast" | "continue" | "ask_user" | "rollback";
@@ -194,7 +218,12 @@ export interface SkillAsset {
 
 export interface DelegationStrategy {
 	id: string;
-	mode: "none" | "native_subagents" | "custom_agents" | "browser_subagent" | "mcp_tools";
+	mode:
+		| "none"
+		| "native_subagents"
+		| "custom_agents"
+		| "browser_subagent"
+		| "mcp_tools";
 	maxWorkers?: number;
 	chunking?: ChunkingStrategy;
 	resultContract: JsonSchema;
@@ -353,7 +382,14 @@ export interface RenderedFile {
 
 export interface RenderedConfigFragment {
 	path: string;
-	format: "json" | "toml" | "markdown" | "yaml" | "yaml-frontmatter" | "python" | "javascript";
+	format:
+		| "json"
+		| "toml"
+		| "markdown"
+		| "yaml"
+		| "yaml-frontmatter"
+		| "python"
+		| "javascript";
 	content: JsonValue | string;
 	source?: SourceRef;
 }
@@ -432,7 +468,13 @@ export interface HostProfile {
 	configFormats: ConfigFormat[];
 }
 
-export type ConfigFormat = "json" | "toml" | "markdown" | "yaml-frontmatter" | "python" | "javascript";
+export type ConfigFormat =
+	| "json"
+	| "toml"
+	| "markdown"
+	| "yaml-frontmatter"
+	| "python"
+	| "javascript";
 
 export interface SurfaceSupport {
 	supported: boolean;
@@ -465,8 +507,12 @@ export interface PluginIr {
 	workflows: Workflow[];
 	rules: ProjectRule[];
 	skills: SkillAsset[];
+	hooks: HookDefinition[];
 	agents: AgentDefinition[];
 	tools: ToolSurface[];
+	artifacts: Artifact[];
+	recipes: CommandRecipe[];
+	delegationStrategies: DelegationStrategy[];
 	policies: PermissionPolicy[];
 	runtimeModules: RuntimeModule[];
 }

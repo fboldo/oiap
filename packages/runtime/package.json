@@ -1,0 +1,29 @@
+{
+	"name": "@oiap/runtime",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "Generated runtime bridge utilities for Open Interoperable Agent Plugins.",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"scripts": {
+		"build": "tsc -p ../core/tsconfig.build.json && tsc -p tsconfig.build.json && bun run build:runner",
+		"build:runner": "bun build src/runner.ts --target=node --format=esm --outfile=dist/runner.mjs",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "bun run build && bun test src"
+	},
+	"dependencies": {
+		"@oiap/core": "workspace:*"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}

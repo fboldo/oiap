@@ -3,8 +3,7 @@
 	"compilerOptions": {
 		"allowImportingTsExtensions": false,
 		"allowJs": false,
-		"noEmit": true,
-		"rootDir": "src"
+		"noEmit": true
 	},
 	"include": ["src/**/*.ts"]
 }

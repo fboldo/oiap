@@ -70,30 +70,44 @@ export type HookCapability =
 	| McpCapability
 	| CustomCapability;
 
-export function networkCapability(capability: Omit<NetworkCapability, "kind">): NetworkCapability {
+export function networkCapability(
+	capability: Omit<NetworkCapability, "kind">,
+): NetworkCapability {
 	return { kind: "network", ...capability };
 }
 
-export function databaseCapability(capability: Omit<DatabaseCapability, "kind">): DatabaseCapability {
+export function databaseCapability(
+	capability: Omit<DatabaseCapability, "kind">,
+): DatabaseCapability {
 	return { kind: "database", ...capability };
 }
 
-export function processCapability(capability: Omit<ProcessCapability, "kind">): ProcessCapability {
+export function processCapability(
+	capability: Omit<ProcessCapability, "kind">,
+): ProcessCapability {
 	return { kind: "process", ...capability };
 }
 
-export function filesystemCapability(capability: Omit<FilesystemCapability, "kind">): FilesystemCapability {
+export function filesystemCapability(
+	capability: Omit<FilesystemCapability, "kind">,
+): FilesystemCapability {
 	return { kind: "filesystem", ...capability };
 }
 
-export function secretCapability(capability: Omit<SecretCapability, "kind">): SecretCapability {
+export function secretCapability(
+	capability: Omit<SecretCapability, "kind">,
+): SecretCapability {
 	return { kind: "secret", ...capability };
 }
 
-export function mcpCapability(capability: Omit<McpCapability, "kind">): McpCapability {
+export function mcpCapability(
+	capability: Omit<McpCapability, "kind">,
+): McpCapability {
 	return { kind: "mcp", ...capability };
 }
 
-export function customCapability(capability: Omit<CustomCapability, "kind">): CustomCapability {
+export function customCapability(
+	capability: Omit<CustomCapability, "kind">,
+): CustomCapability {
 	return { kind: "custom", ...capability };
 }

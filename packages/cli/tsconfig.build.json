@@ -1,0 +1,19 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"declaration": true,
+		"declarationMap": true,
+		"noEmit": false,
+		"outDir": "dist",
+		"paths": {
+			"@oiap/core": ["../core/dist/index.d.ts"],
+			"@oiap/runtime": ["../runtime/dist/index.d.ts"],
+			"@oiap/exporter-codex": ["../exporter-codex/dist/index.d.ts"],
+			"@oiap/exporter-claude-code": ["../exporter-claude-code/dist/index.d.ts"],
+			"@oiap/exporter-openclaw": ["../exporter-openclaw/dist/index.d.ts"]
+		},
+		"rootDir": "src",
+		"sourceMap": true
+	},
+	"exclude": ["dist", "**/*.test.ts"]
+}

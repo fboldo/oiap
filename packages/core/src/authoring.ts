@@ -1,22 +1,23 @@
 import type { HookDefinition, TargetModuleRef } from "./hooks";
 import type {
-    AgentDefinition,
-    Artifact,
-    CommandAsset,
-    CommandRecipe,
-    DelegationStrategy,
-    HostProfile,
-    InstructionModule,
-    Invocation,
-    PermissionPolicy,
-    PlatformExporter,
-    PluginManifest,
-    ProjectRule,
-    RuntimeModule,
-    SkillAsset,
-    TargetId,
-    ToolSurface,
-    Workflow,
+	AgentDefinition,
+	Artifact,
+	CommandAsset,
+	CommandRecipe,
+	DelegationStrategy,
+	HostProfile,
+	InstructionModule,
+	Invocation,
+	PermissionPolicy,
+	PlatformExporter,
+	PluginIr,
+	PluginManifest,
+	ProjectRule,
+	RuntimeModule,
+	SkillAsset,
+	TargetId,
+	ToolSurface,
+	Workflow,
 } from "./primitives";
 
 export const CURRENT_OIAP_CORE_VERSION = "0.0.0";
@@ -37,10 +38,14 @@ export interface PluginDefinition {
 	delegationStrategies?: DelegationStrategy[];
 	policies?: PermissionPolicy[];
 	runtimeModules?: RuntimeModule[];
-	targetModules?: Partial<Record<TargetId, TargetModuleRef | TargetModuleRef[]>>;
+	targetModules?: Partial<
+		Record<TargetId, TargetModuleRef | TargetModuleRef[]>
+	>;
 }
 
-export type DefinedPlugin<TDefinition extends PluginDefinition = PluginDefinition> = TDefinition & {
+export type DefinedPlugin<
+	TDefinition extends PluginDefinition = PluginDefinition,
+> = TDefinition & {
 	readonly kind: "oiap.plugin";
 	readonly oiapVersion: string;
 };
@@ -55,14 +60,40 @@ export function definePlugin<const TDefinition extends PluginDefinition>(
 	} as DefinedPlugin<TDefinition>;
 }
 
-export function defineManifest<const TManifest extends PluginManifest>(manifest: TManifest): TManifest {
+export function toPluginIr(definition: PluginDefinition): PluginIr {
+	return {
+		manifest: definition.manifest,
+		invocations: definition.invocations ?? [],
+		instructions: definition.instructions ?? [],
+		commands: definition.commands ?? [],
+		workflows: definition.workflows ?? [],
+		rules: definition.rules ?? [],
+		skills: definition.skills ?? [],
+		hooks: definition.hooks ?? [],
+		agents: definition.agents ?? [],
+		tools: definition.tools ?? [],
+		artifacts: definition.artifacts ?? [],
+		recipes: definition.recipes ?? [],
+		delegationStrategies: definition.delegationStrategies ?? [],
+		policies: definition.policies ?? [],
+		runtimeModules: definition.runtimeModules ?? [],
+	};
+}
+
+export function defineManifest<const TManifest extends PluginManifest>(
+	manifest: TManifest,
+): TManifest {
 	return manifest;
 }
 
-export function defineHostProfile<const TProfile extends HostProfile>(profile: TProfile): TProfile {
+export function defineHostProfile<const TProfile extends HostProfile>(
+	profile: TProfile,
+): TProfile {
 	return profile;
 }
 
-export function defineExporter<const TExporter extends PlatformExporter>(exporter: TExporter): TExporter {
+export function defineExporter<const TExporter extends PlatformExporter>(
+	exporter: TExporter,
+): TExporter {
 	return exporter;
 }
