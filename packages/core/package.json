@@ -1,0 +1,21 @@
+{
+	"name": "@oiap/core",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "Core primitives and author API for Open Interoperable Agent Plugins.",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": ["dist", "src"],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"check": "tsc -p tsconfig.json --noEmit"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}
