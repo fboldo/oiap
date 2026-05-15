@@ -18,6 +18,9 @@
 			"@oiap/core": ["./packages/core/src/index.ts"],
 			"@oiap/runtime": ["./packages/runtime/src/index.ts"],
 			"@oiap/exporter-codex": ["./packages/exporter-codex/src/index.ts"],
+			"@oiap/exporter-vscode-copilot": [
+				"./packages/exporter-vscode-copilot/src/index.ts"
+			],
 			"@oiap/exporter-claude-code": [
 				"./packages/exporter-claude-code/src/index.ts"
 			],

@@ -64,7 +64,7 @@ canonical repository, or vendor-owned release note is found.
 | Codex | core | Y | Y | Y | P | Y | Y | Y | F | Y | `packages/exporter-codex` |
 | OpenCode | bridge | P | P | P | P | P | ? | P | R | P | `packages/exporter-opencode` |
 | GitHub Copilot CLI | thin | ? | P | ? | P | N | N | ? | F | N | `packages/exporter-github-copilot-cli` |
-| VS Code Copilot Chat | editor | P | Y | Y | P | P | P | Y | F | P | `packages/exporter-vscode-copilot-chat` |
+| VS Code Copilot Chat | editor | Y | F | Y | Y | P | Y | Y | P | P | `packages/exporter-vscode-copilot` |
 | Aider | workflow | N | P | N | P | P | N | ? | F | P | `packages/exporter-aider` |
 | OpenClaw | core | Y | F | Y | P | Y | P | P | F | P | `packages/exporter-openclaw` |
 | Factory Droid | core | Y | P | Y | Y | Y | Y | Y | F | Y | `packages/exporter-factory-droid` |
@@ -80,10 +80,11 @@ canonical repository, or vendor-owned release note is found.
 
 ## Adapter Status
 
-The repository now contains initial Claude Code, Codex, and OpenClaw exporter
-packages at `packages/exporter-claude-code`, `packages/exporter-codex`, and
-`packages/exporter-openclaw`. Other adapter paths in the matrix remain proposed
-package locations until implemented.
+The repository now contains initial Claude Code, Codex, OpenClaw, and VS Code
+Copilot exporter packages at `packages/exporter-claude-code`,
+`packages/exporter-codex`, `packages/exporter-openclaw`, and
+`packages/exporter-vscode-copilot`. Other adapter paths in the matrix remain
+proposed package locations until implemented.
 
 When adapter packages are added, each target should expose:
 
@@ -136,9 +137,11 @@ MCP, or subagents without current official evidence.
 
 ### VS Code Copilot Chat
 
-Editor target. Verify project skills, prompts, instructions, custom agents,
-hooks, MCP, and any differences between project-level and user-level
-customizations.
+Editor plugin target. VS Code Copilot agent plugins use root `plugin.json`,
+Agent Skills folders, prompt-file slash commands, `.agent.md` custom agents,
+root `hooks.json`, and root `.mcp.json`. Copilot-format plugins do not define a
+plugin-root token, so generated hook runtime commands are plugin-relative and
+reported as degraded until conformance probes confirm host path behavior.
 
 ### Aider
 
@@ -230,4 +233,5 @@ validation.
 | 2026-05-15 | Claude Code | Initial exporter package | Static renderer and generated raw-JS hook runtime exist | Add conformance probes before claiming full support |
 | 2026-05-15 | Codex | Initial exporter package | Plugin/config renderer and generated raw-JS hook runtime exist; command-to-skill fallback remains | Add Codex conformance probes and compare against plugin validation when available |
 | 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |
+| 2026-05-15 | VS Code Copilot Chat | Initial exporter package | Copilot-format plugin renderer and generated raw-JS hook runtime exist; hook runner paths are plugin-relative because Copilot format has no root token | Add VS Code plugin diagnostics/conformance probes for root `plugin.json`, prompt commands, skills, agents, hooks, and MCP |
 | 2026-05-15 | all remaining targets | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |

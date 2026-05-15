@@ -323,10 +323,22 @@ function normalizeHookInput(event: string, payload: UnknownRecord): unknown {
 
 	if (event === "before_tool" || event === "after_tool") {
 		return {
-			tool: normalizeTool(payload.tool ?? payload.toolName ?? payload.name),
-			arguments: asRecord(payload.arguments ?? payload.args ?? payload.params),
-			callId: typeof payload.callId === "string" ? payload.callId : undefined,
-			result: payload.result,
+			tool: normalizeTool(
+				payload.tool ?? payload.toolName ?? payload.tool_name ?? payload.name,
+			),
+			arguments: asRecord(
+				payload.arguments ??
+					payload.args ??
+					payload.params ??
+					payload.tool_input,
+			),
+			callId:
+				typeof payload.callId === "string"
+					? payload.callId
+					: typeof payload.tool_use_id === "string"
+						? payload.tool_use_id
+						: undefined,
+			result: payload.result ?? payload.tool_response,
 			error: payload.error,
 		};
 	}
@@ -357,7 +369,9 @@ function normalizeHookInput(event: string, payload: UnknownRecord): unknown {
 		const agent = asRecord(payload.agent);
 
 		return {
-			agentName: String(payload.agentName ?? agent.name ?? "agent"),
+			agentName: String(
+				payload.agentName ?? payload.agent_type ?? agent.name ?? "agent",
+			),
 			task: String(payload.task ?? payload.prompt ?? ""),
 			status: payload.status,
 			result: payload.result,
@@ -635,6 +649,10 @@ function mapHookResult(options: {
 	target: string;
 	format?: string;
 }): MappedHookResult {
+	if (options.target === "vscode-copilot-chat") {
+		return mapVsCodeHookResult(options.result, options.hook);
+	}
+
 	const envelope = {
 		oiap: {
 			runtime: "generated-js",
@@ -664,6 +682,11 @@ function mapHookFailure(options: {
 }): MappedHookResult {
 	const message = errorMessage(options.error);
 	const decision = failureDecision(options.hook, message);
+
+	if (options.target === "vscode-copilot-chat") {
+		return mapVsCodeHookFailure(decision, options.hook, message);
+	}
+
 	const envelope = {
 		oiap: {
 			runtime: "generated-js",
@@ -681,6 +704,102 @@ function mapHookFailure(options: {
 		stderr: `${message}\n`,
 		exitCode,
 	};
+}
+
+function mapVsCodeHookResult(
+	result: HookResult,
+	hook: HookRuntimeHook,
+): MappedHookResult {
+	if (result.decision === "block") {
+		return {
+			stdout: "",
+			stderr: `${blockMessage(result)}\n`,
+			exitCode: 2,
+		};
+	}
+
+	return {
+		stdout: `${JSON.stringify(vsCodeHookOutput(result, hook))}\n`,
+		stderr: "",
+		exitCode: 0,
+	};
+}
+
+function mapVsCodeHookFailure(
+	decision: HookResult,
+	hook: HookRuntimeHook,
+	message: string,
+): MappedHookResult {
+	if (decision.decision === "block") {
+		return {
+			stdout: "",
+			stderr: `${message}\n`,
+			exitCode: 2,
+		};
+	}
+
+	return {
+		stdout: `${JSON.stringify({
+			...vsCodeHookOutput(decision, hook),
+			systemMessage: `OIAP hook failure: ${message}`,
+		})}\n`,
+		stderr: `${message}\n`,
+		exitCode: 0,
+	};
+}
+
+function vsCodeHookOutput(result: HookResult, hook: HookRuntimeHook) {
+	const hookEventName = hook.targetEvent ?? hook.event;
+
+	if (hookEventName === "PreToolUse") {
+		if (result.decision === "allow" || result.decision === "ask") {
+			return {
+				hookSpecificOutput: {
+					hookEventName,
+					permissionDecision: result.decision === "ask" ? "ask" : "allow",
+					permissionDecisionReason: resultMessage(result),
+				},
+			};
+		}
+
+		if (result.decision === "inject_context") {
+			return {
+				hookSpecificOutput: {
+					hookEventName,
+					additionalContext: resultString(result, "content"),
+				},
+			};
+		}
+	}
+
+	if (result.decision === "inject_context") {
+		return {
+			hookSpecificOutput: {
+				hookEventName,
+				additionalContext: resultString(result, "content"),
+			},
+		};
+	}
+
+	if (result.decision === "modify") {
+		return {
+			systemMessage:
+				resultMessage(result) ??
+				"OIAP hook requested input modification that is not directly representable in VS Code hook output.",
+		};
+	}
+
+	return { continue: true };
+}
+
+function resultMessage(result: HookResult): string | undefined {
+	const message = result.message ?? result.reason;
+	return typeof message === "string" ? message : undefined;
+}
+
+function resultString(result: HookResult, key: string): string | undefined {
+	const value = result[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function failureDecision(hook: HookRuntimeHook, message: string): HookResult {

@@ -8,9 +8,9 @@
 		"format": "bunx biome format --write .",
 		"format:check": "bunx biome format .",
 		"check": "bunx biome check .",
-		"test": "bun run build && bun test packages/runtime/src packages/exporter-claude-code/src packages/exporter-codex/src packages/exporter-openclaw/src",
-		"test:coverage": "bun run build && bun test --coverage packages/runtime/src packages/exporter-claude-code/src packages/exporter-codex/src packages/exporter-openclaw/src",
-		"typecheck": "bunx tsc -p packages/core/tsconfig.json --noEmit && bunx tsc -p packages/runtime/tsconfig.json --noEmit && bunx tsc -p packages/exporter-claude-code/tsconfig.json --noEmit && bunx tsc -p packages/exporter-codex/tsconfig.json --noEmit && bunx tsc -p packages/exporter-openclaw/tsconfig.json --noEmit && bunx tsc -p packages/cli/tsconfig.json --noEmit",
+		"test": "bun run build && bun test packages/runtime/src packages/exporter-claude-code/src packages/exporter-codex/src packages/exporter-openclaw/src packages/exporter-vscode-copilot/src",
+		"test:coverage": "bun run build && bun test --coverage packages/runtime/src packages/exporter-claude-code/src packages/exporter-codex/src packages/exporter-openclaw/src packages/exporter-vscode-copilot/src",
+		"typecheck": "bunx tsc -p packages/core/tsconfig.json --noEmit && bunx tsc -p packages/runtime/tsconfig.json --noEmit && bunx tsc -p packages/exporter-claude-code/tsconfig.json --noEmit && bunx tsc -p packages/exporter-codex/tsconfig.json --noEmit && bunx tsc -p packages/exporter-openclaw/tsconfig.json --noEmit && bunx tsc -p packages/exporter-vscode-copilot/tsconfig.json --noEmit && bunx tsc -p packages/cli/tsconfig.json --noEmit",
 		"oiap": "bun packages/cli/src/cli.ts",
 		"precommit": "bun run check && bun run typecheck && bun run test",
 		"prepare": "husky"

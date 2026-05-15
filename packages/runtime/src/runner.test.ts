@@ -102,6 +102,43 @@ export async function blockTool() {
 		});
 	});
 
+	test("maps VS Code hook results to VS Code hook output", async () => {
+		const fixture = await writeRunnerFixture({
+			target: "vscode-copilot-chat",
+			hooksSource: `
+export async function askForToolReview(context) {
+	return {
+		decision: "ask",
+		message: "Review " + context.input.tool.name + " " + context.input.arguments.command,
+	};
+}
+`,
+			hook: {
+				id: "ask-tool",
+				event: "before_tool",
+				targetEvent: "PreToolUse",
+				exportName: "askForToolReview",
+			},
+		});
+
+		const result = await runRunner(fixture, {
+			input: JSON.stringify({
+				tool_name: "run_in_terminal",
+				tool_input: { command: "pwd" },
+			}),
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(JSON.parse(result.stdout)).toEqual({
+			hookSpecificOutput: {
+				hookEventName: "PreToolUse",
+				permissionDecision: "ask",
+				permissionDecisionReason: "Review run_in_terminal pwd",
+			},
+		});
+	});
+
 	test("turns fail-open hook failures into allow results", async () => {
 		const fixture = await writeRunnerFixture({
 			hooksSource: `
@@ -137,10 +174,12 @@ export async function failOpen() {
 });
 
 interface RunnerFixtureOptions {
+	target?: string;
 	hooksSource: string;
 	hook: {
 		id: string;
 		event: string;
+		targetEvent?: string;
 		exportName: string;
 		failureMode?: string;
 	};
@@ -174,6 +213,7 @@ async function writeRunnerFixture(
 ): Promise<RunnerFixture> {
 	const root = await mkdtemp(join(tmpdir(), "oiap-runner-"));
 	const manifestPath = join(root, "manifest.json");
+	const target = options.target ?? "codex";
 
 	await writeFile(join(root, "hooks.mjs"), options.hooksSource);
 	await writeFile(
@@ -183,12 +223,13 @@ async function writeRunnerFixture(
 				runtime: "oiap.generated-js-hook-runtime",
 				version: 1,
 				pluginId: "runner-test",
-				target: "codex",
+				target,
 				defaultTimeoutMs: 1000,
 				hooks: {
 					[options.hook.id]: {
 						id: options.hook.id,
 						event: options.hook.event,
+						targetEvent: options.hook.targetEvent,
 						module: "./hooks.mjs",
 						exportName: options.hook.exportName,
 						timeoutMs: 1000,
@@ -207,7 +248,7 @@ async function writeRunnerFixture(
 		manifestPath,
 		hookId: options.hook.id,
 		event: options.hook.event,
-		target: "codex",
+		target,
 	};
 }
 

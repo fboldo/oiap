@@ -10,6 +10,10 @@ import {
 } from "@oiap/exporter-claude-code";
 import { CODEX_TARGET, exportCodex } from "@oiap/exporter-codex";
 import { exportOpenClaw, OPENCLAW_TARGET } from "@oiap/exporter-openclaw";
+import {
+	exportVsCodeCopilot,
+	VSCODE_COPILOT_TARGET,
+} from "@oiap/exporter-vscode-copilot";
 
 export type CliPluginInput = PluginDefinition | PluginIr;
 
@@ -34,6 +38,11 @@ export const exporterRegistry = {
 		target: OPENCLAW_TARGET,
 		packageName: "@oiap/exporter-openclaw",
 		exportBundle: exportOpenClaw,
+	},
+	[VSCODE_COPILOT_TARGET]: {
+		target: VSCODE_COPILOT_TARGET,
+		packageName: "@oiap/exporter-vscode-copilot",
+		exportBundle: exportVsCodeCopilot,
 	},
 } satisfies Record<string, RegisteredExporter>;
 
