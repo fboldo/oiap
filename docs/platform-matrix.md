@@ -54,7 +54,7 @@ canonical repository, or vendor-owned release note is found.
 | Kiro IDE/CLI | Needs verified official source | needs verification | Confirm Agent Skills, steering, hooks, MCP, specs, and policy controls from official docs. |
 | Pi coding agent | Needs verified official source | needs verification | Keep as thin target until official extension surfaces are verified. |
 | Cursor | <https://cursor.com/docs> | official docs | Verify plugins, rules, skills, commands, agents, hooks, MCP, and nested agent guidance. |
-| Google Antigravity | Needs verified official source | needs verification | Confirm rules, workflows, skills, MCP, permissions, task groups, and browser subagent behavior. |
+| Google Antigravity | <https://antigravity.google/docs> | official docs | Verify feature pages for workspace rules, workflows, Agent Skills, MCP, permissions, strict mode, task groups, and browser subagent behavior. |
 
 ## Capability Matrix
 
@@ -76,12 +76,13 @@ canonical repository, or vendor-owned release note is found.
 | Kiro IDE/CLI | core | P | Y | Y | P | Y | P | Y | F | P | `packages/exporter-kiro` |
 | Pi coding agent | thin | ? | F | F | F | ? | ? | ? | F | ? | `packages/exporter-pi` |
 | Cursor | editor | Y | Y | Y | Y | Y | Y | Y | P | P | `packages/exporter-cursor` |
-| Google Antigravity | core | P | Y | Y | Y | P | Y | Y | F | Y | `packages/exporter-antigravity` |
+| Google Antigravity | core | F | Y | Y | P | N | P | Y | F | P | `packages/exporter-antigravity` |
 
 ## Adapter Status
 
-The repository now contains initial Claude Code, Codex, Cursor, OpenClaw, and VS
-Code Copilot exporter packages at `packages/exporter-claude-code`,
+The repository now contains initial Antigravity, Claude Code, Codex, Cursor,
+OpenClaw, and VS Code Copilot exporter packages at
+`packages/exporter-antigravity`, `packages/exporter-claude-code`,
 `packages/exporter-codex`, `packages/exporter-cursor`,
 `packages/exporter-openclaw`, and `packages/exporter-vscode-copilot`. Other
 adapter paths in the matrix remain proposed package locations until implemented.
@@ -210,9 +211,13 @@ policy-specific lowering gaps in the capability report.
 
 ### Google Antigravity
 
-High-fidelity workflow target. Verify rules, workflows, skills, MCP config,
-permissions, planning modes, task groups, browser subagent behavior, and hook-like
-events.
+Workflow/config target. Antigravity documents workspace Markdown rules under
+`.agents/rules`, Agent Skills under `.agents/skills`, workflow markdown invoked
+as slash commands, `mcp_config.json` with `mcpServers`, allow/deny/ask
+permission resource strings, strict mode, task groups, and a browser subagent.
+OIAP exports bundle artifacts for the documented file formats and records
+degradations for the missing native plugin manifest, hook configuration, custom
+agent files, workflow directory schema, and project-local permission file path.
 
 ## Refresh Checklist
 

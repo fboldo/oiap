@@ -281,7 +281,7 @@ function isCliEntrypoint(): boolean {
 }
 
 const generalHelpText = `Usage:
-	oiap build <plugin-file> [--target all|claude-code|codex|openclaw] [--out <dir>] [--export <name>] [--json]
+	oiap build <plugin-file> [--target all|antigravity|claude-code|codex|cursor|openclaw|vscode-copilot-chat] [--out <dir>] [--export <name>] [--json]
   oiap targets [--json]
 
 Commands:

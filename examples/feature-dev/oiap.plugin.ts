@@ -17,6 +17,7 @@ export default definePlugin({
 			"https://github.com/anthropics/claude-code/tree/main/plugins/feature-dev",
 		categories: ["example", "workflow", "agents", "commands"],
 		supportedTargets: [
+			"antigravity",
 			"claude-code",
 			"codex",
 			"openclaw",
@@ -28,6 +29,7 @@ export default definePlugin({
 			id: "feature-dev-invocation",
 			canonical: "feature-dev",
 			targetAliases: {
+				antigravity: "feature-dev",
 				"claude-code": "feature-dev",
 				codex: "feature-dev",
 				openclaw: "feature-dev",
@@ -73,6 +75,10 @@ export default definePlugin({
 			invocation: { id: "feature-dev-invocation", kind: "invocation" },
 			prompt: { id: "feature-dev-command-prompt", kind: "instruction" },
 			targetMetadata: {
+				antigravity: {
+					description:
+						"Guided feature development with codebase understanding and architecture focus",
+				},
 				"claude-code": {
 					description:
 						"Guided feature development with codebase understanding and architecture focus",

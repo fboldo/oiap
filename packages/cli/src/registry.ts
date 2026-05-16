@@ -5,6 +5,10 @@ import type {
 	TargetId,
 } from "@oiap/core";
 import {
+	ANTIGRAVITY_TARGET,
+	exportAntigravity,
+} from "@oiap/exporter-antigravity";
+import {
 	CLAUDE_CODE_TARGET,
 	exportClaudeCode,
 } from "@oiap/exporter-claude-code";
@@ -25,6 +29,11 @@ export interface RegisteredExporter {
 }
 
 export const exporterRegistry = {
+	[ANTIGRAVITY_TARGET]: {
+		target: ANTIGRAVITY_TARGET,
+		packageName: "@oiap/exporter-antigravity",
+		exportBundle: exportAntigravity,
+	},
 	[CLAUDE_CODE_TARGET]: {
 		target: CLAUDE_CODE_TARGET,
 		packageName: "@oiap/exporter-claude-code",

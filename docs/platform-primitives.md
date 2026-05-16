@@ -46,7 +46,7 @@ agent ecosystem:
 | Kiro IDE/CLI | Agent Skills, steering files, hooks, MCP, specs |
 | Pi coding agent | Thin skill bundle until official surfaces are confirmed |
 | Cursor | Plugin package, rules, skills, commands, custom agents, hooks, MCP |
-| Google Antigravity | Rules, workflows, skills, MCP configuration, permissions, task groups |
+| Google Antigravity | Workspace rules, Agent Skills, workflow markdown, MCP configuration, permission fragments, task group guidance |
 
 This table is not an adoption workflow. It is an export matrix: each row answers
 "what kind of bundle can OIAP generate for this host?"

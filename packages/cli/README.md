@@ -8,13 +8,14 @@ bun run oiap build ./oiap.plugin.ts
 ```
 
 By default, the CLI builds every registered target into `dist/oiap/<target>`. The
-current registered targets are Claude Code, Codex, Cursor, OpenClaw, and VS Code
-Copilot.
+current registered targets are Antigravity, Claude Code, Codex, Cursor,
+OpenClaw, and VS Code Copilot.
 
 The target output directory is cleaned before each build so stale files from an
 older exporter run cannot remain in the generated plugin.
 
 ```sh
+bun run oiap build ./oiap.plugin.ts --target antigravity --out ./build/antigravity
 bun run oiap build ./oiap.plugin.ts --target claude-code --out ./build/claude
 bun run oiap build ./oiap.plugin.ts --target codex --out ./build/codex
 bun run oiap build ./oiap.plugin.ts --target cursor --out ./build/cursor

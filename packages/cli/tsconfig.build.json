@@ -8,6 +8,7 @@
 		"paths": {
 			"@oiap/core": ["../core/dist/index.d.ts"],
 			"@oiap/runtime": ["../runtime/dist/index.d.ts"],
+			"@oiap/exporter-antigravity": ["../exporter-antigravity/dist/index.d.ts"],
 			"@oiap/exporter-codex": ["../exporter-codex/dist/index.d.ts"],
 			"@oiap/exporter-claude-code": ["../exporter-claude-code/dist/index.d.ts"],
 			"@oiap/exporter-cursor": ["../exporter-cursor/dist/index.d.ts"],

@@ -22,6 +22,7 @@
       },
       "dependencies": {
         "@oiap/core": "workspace:*",
+        "@oiap/exporter-antigravity": "workspace:*",
         "@oiap/exporter-claude-code": "workspace:*",
         "@oiap/exporter-codex": "workspace:*",
         "@oiap/exporter-cursor": "workspace:*",
@@ -35,6 +36,16 @@
     "packages/core": {
       "name": "@oiap/core",
       "version": "0.0.0",
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/exporter-antigravity": {
+      "name": "@oiap/exporter-antigravity",
+      "version": "0.0.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
+      },
       "peerDependencies": {
         "typescript": "^5",
       },
@@ -127,6 +138,8 @@
     "@oiap/cli": ["@oiap/cli@workspace:packages/cli"],
 
     "@oiap/core": ["@oiap/core@workspace:packages/core"],
+
+    "@oiap/exporter-antigravity": ["@oiap/exporter-antigravity@workspace:packages/exporter-antigravity"],
 
     "@oiap/exporter-claude-code": ["@oiap/exporter-claude-code@workspace:packages/exporter-claude-code"],
 
