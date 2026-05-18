@@ -1,6 +1,6 @@
 {
 	"name": "@oiap/core",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"type": "module",
 	"description": "Core primitives and author API for Open Interoperable Agent Plugins.",
 	"license": "MIT",

@@ -1,6 +1,6 @@
 {
 	"name": "@oiap/exporter-vscode-copilot",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"type": "module",
 	"description": "VS Code Copilot agent plugin exporter for Open Interoperable Agent Plugins.",
 	"license": "MIT",

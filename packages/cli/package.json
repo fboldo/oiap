@@ -1,6 +1,6 @@
 {
 	"name": "@oiap/cli",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"type": "module",
 	"description": "Command-line tooling for building Open Interoperable Agent Plugin bundles.",
 	"license": "MIT",
@@ -38,8 +38,8 @@
 	"dependencies": {
 		"@oiap/core": "workspace:*",
 		"@oiap/exporter-antigravity": "workspace:*",
-		"@oiap/exporter-codex": "workspace:*",
 		"@oiap/exporter-claude-code": "workspace:*",
+		"@oiap/exporter-codex": "workspace:*",
 		"@oiap/exporter-cursor": "workspace:*",
 		"@oiap/exporter-openclaw": "workspace:*",
 		"@oiap/exporter-vscode-copilot": "workspace:*"
