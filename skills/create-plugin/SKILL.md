@@ -1,16 +1,16 @@
 ---
 name: create-plugin
-description: Create Open Interoperable Agent Plugin (OIAP) projects and plugin definitions. Use this skill whenever the user wants to create, scaffold, design, or improve an OIAP plugin, write an oiap.plugin.ts file, define commands, instructions, skills, hooks, agents, policies, or build target bundles with the npm-published OIAP CLI.
+description: Use this skill when the user needs to write, scaffold, or improve an OIAP agent plugin in TypeScript, create an oiap.plugin.ts file, define commands, instructions, skills, hooks, agents, or policies, or build target bundles with the OIAP CLI.
 ---
 
 # Create OIAP Plugin
 
-Use this skill to help users create OIAP plugins that can be authored once and
-exported into host-native bundles for multiple agent platforms.
+Use this skill when the user needs to write an agent plugin in TypeScript using
+OIAP.
 
-This skill is intended for agents installed with `npx skills`. It is not a
-repository-local customization. Treat OIAP as an external SDK and CLI unless the
-user is explicitly working inside the OIAP source repository.
+OIAP lets plugin authors define a plugin once and export host-native bundles for
+multiple agent platforms. Treat OIAP as an external SDK and CLI unless the user
+is explicitly working inside the OIAP source repository.
 
 ## First Response
 
@@ -29,10 +29,27 @@ useful plugin and explain where to extend it.
 
 ## Install OIAP
 
-For normal plugin projects, use the npm-published Node CLI and SDK:
+For normal plugin projects, use the published OIAP CLI and SDK.
+
+Use the existing project package manager in commands and examples. If the
+project already uses `bun`, `pnpm`, `yarn`, or `npm`, follow that choice
+instead of switching tools. Only fall back to `npm` when the project has no
+clear package manager yet.
+
+Install the OIAP packages with that package manager. For example:
 
 ```sh
+# npm
 npm install --save-dev @oiap/cli @oiap/core
+
+# pnpm
+pnpm add -D @oiap/cli @oiap/core
+
+# yarn
+yarn add --dev @oiap/cli @oiap/core
+
+# bun
+bun add --dev @oiap/cli @oiap/core
 ```
 
 Use `npx oiap` in examples and instructions:
