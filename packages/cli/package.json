@@ -3,6 +3,7 @@
 	"version": "0.0.0",
 	"type": "module",
 	"description": "Command-line tooling for building Open Interoperable Agent Plugin bundles.",
+	"license": "MIT",
 	"bin": {
 		"oiap": "./dist/cli.js"
 	},

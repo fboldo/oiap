@@ -11,12 +11,11 @@ reports, and adapter code; adoption remains a host or user workflow.
 
 Last reviewed: 2026-05-15.
 
-Use the [OIAP Platform Matrix Refresh](../.agents/skills/oiap-platform-matrix-refresh/SKILL.md)
+Use the [OIAP Platform Matrix Refresh](.agents/skills/oiap-platform-matrix-refresh/SKILL.md)
 skill when refreshing this document from current platform docs.
 
-For shared terminology used in the matrix, see the [Glossary](glossary.md).
-For the testing strategy behind support claims, see the
-[Platform Conformance Test Harness](test-harness.md).
+For shared terminology used in the matrix, see the
+[Architecture Glossary](ARCHITECTURE.md#glossary).
 
 ## Legend
 

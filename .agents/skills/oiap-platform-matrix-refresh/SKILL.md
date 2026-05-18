@@ -1,6 +1,6 @@
 ---
 name: oiap-platform-matrix-refresh
-description: "Use when: refreshing OIAP platform support documentation, updating docs/platform-matrix.md, researching agent harness platform docs, auditing exporter assumptions, checking target profiles against adapters, or verifying capabilities such as hooks, MCP, skills, commands, rules, custom agents, runtime bridges, package formats, permissions, and policies across Claude Code, Codex, Gemini CLI, Hermes, Kiro, Cursor, Trae, Factory Droid, Antigravity, and related agent platforms."
+description: "Use when: refreshing OIAP platform support documentation, updating MATRIX.md, researching agent harness platform docs, auditing exporter assumptions, checking target profiles against adapters, or verifying capabilities such as hooks, MCP, skills, commands, rules, custom agents, runtime bridges, package formats, permissions, and policies across Claude Code, Codex, Gemini CLI, Hermes, Kiro, Cursor, Trae, Factory Droid, Antigravity, and related agent platforms."
 argument-hint: "[platform names or all]"
 user-invocable: true
 ---
@@ -18,15 +18,14 @@ code unless the user explicitly asks for that follow-up.
 
 The user may name one platform, several platforms, or `all`. If no scope is
 given, refresh the targets that are most likely to have changed or that have `?`
-marks in `docs/platform-matrix.md`.
+marks in `MATRIX.md`.
 
 ## Read First
 
 Read these files before researching:
 
-- `docs/platform-matrix.md`
-- `docs/platform-primitives.md`
-- `docs/runtime-bridge-pattern.md`
+- `ARCHITECTURE.md`
+- `MATRIX.md`
 - `package.json`
 
 Then inspect adapter code if it exists:
@@ -41,7 +40,7 @@ say that no implementation comparison was possible yet.
 ## Research Procedure
 
 1. Resolve the platform scope.
-2. Start from the Documentation Sources table in `docs/platform-matrix.md`.
+2. Start from the Documentation Sources table in `MATRIX.md`.
 3. Use the queries in [platform-source-queries.md](./references/platform-source-queries.md)
    to find feature-specific docs and replacement official sources for rows
    marked `needs verification`.
@@ -59,7 +58,7 @@ and add a short note instead of guessing.
 
 ## Matrix Update Rules
 
-Use the existing legend in `docs/platform-matrix.md`:
+Use the existing legend in `MATRIX.md`:
 
 - `Y`: native or first-class target surface expected.
 - `P`: partial support, profile-dependent support, or likely support needing
@@ -94,7 +93,7 @@ Classify mismatches as:
 | `needs-source` | No current official source was found |
 | `target-renamed` | Platform naming or package shape changed |
 
-Add important mismatches to the Adapter Review Queue in `docs/platform-matrix.md`.
+Add important mismatches to the Adapter Review Queue in `MATRIX.md`.
 Do not change adapter behavior unless the user explicitly asks for an
 implementation pass.
 
@@ -120,7 +119,7 @@ Mention exact platforms that remain `?` and why.
 After edits, run:
 
 ```bash
-bunx biome check README.md docs/platform-matrix.md docs/platform-primitives.md docs/runtime-bridge-pattern.md .agents/skills/oiap-platform-matrix-refresh/SKILL.md .agents/skills/oiap-platform-matrix-refresh/references/platform-source-queries.md
+bunx biome check README.md ARCHITECTURE.md MATRIX.md .agents/skills/oiap-platform-matrix-refresh/SKILL.md .agents/skills/oiap-platform-matrix-refresh/references/platform-source-queries.md
 ```
 
 Also run editor diagnostics for edited Markdown files when available.

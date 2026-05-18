@@ -1,6 +1,6 @@
 # Platform Source Queries
 
-Use this reference when refreshing `docs/platform-matrix.md`. Prefer official
+Use this reference when refreshing `MATRIX.md`. Prefer official
 docs, canonical repositories, release notes, and host-owned examples.
 
 ## Source Priority

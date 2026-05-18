@@ -3,6 +3,7 @@
 	"version": "0.0.0",
 	"type": "module",
 	"description": "Claude Code target exporter for Open Interoperable Agent Plugins.",
+	"license": "MIT",
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
