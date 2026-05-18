@@ -62,6 +62,18 @@ Build the same plugin for every registered exporter:
 npx oiap build oiap.plugin.ts --out dist/oiap
 ```
 
+## Agent Skill
+
+🤯 Agents write plugins for agents. The [create-plugin skill](skills/create-plugin)
+helps agents scaffold OIAP plugin projects, write `oiap.plugin.ts` files, choose
+primitives, and build bundles with the npm-published OIAP CLI.
+
+Install it with:
+
+```sh
+npx skills add fboldo/oiap --skill create-plugin
+```
+
 ## Plugin Example
 
 An OIAP plugin is a normal TypeScript module that exports a `definePlugin`
