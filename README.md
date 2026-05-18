@@ -1,5 +1,24 @@
 # OIAP - Open Interoperable Agent Plugins
 
+
+<p>
+	<strong>Write your AI agent plugin in TypeScript once and convert to:</strong>
+</p>
+
+<table>
+	<tr>
+		<td align="center" valign="middle"><img src="assets/icons/claudecode-color.png" alt="Claude Code" width="20" height="20" /> Claude Code</td>
+		<td align="center" valign="middle"><img src="assets/icons/codex-color.png" alt="Codex" width="20" height="20" /> Codex</td>
+		<td align="center" valign="middle"><img src="assets/icons/githubcopilot.png" alt="GitHub Copilot" width="20" height="20" /> VS Code Copilot</td>
+		<td align="center" valign="middle"><img src="assets/icons/cursor.png" alt="Cursor" width="20" height="20" /> Cursor</td>
+		<td align="center" valign="middle"><img src="assets/icons/openclaw-color.png" alt="OpenClaw" width="20" height="20" /> OpenClaw</td>
+		<td align="center" valign="middle"><img src="assets/icons/antigravity-color.png" alt="Google Antigravity" width="20" height="20" /> Google Antigravity</td>
+	</tr>
+	<tr>
+		<td colspan="6" align="center"><strong>and many more...</strong></td>
+	</tr>
+</table>
+
 OIAP is a TypeScript SDK and build toolchain for writing AI agent plugins once
 and exporting them into host-native bundles for multiple agent platforms.
 
@@ -11,7 +30,7 @@ target platform.
 
 ## Project Status
 
-OIAP is early and actively evolving. The current repository focuses on developer
+**⚠️ OIAP is early and actively evolving.** The current repository focuses on developer
 tooling: define plugins, normalize them into an intermediate representation, and
 generate bundle artifacts. Installing those artifacts into a user's local agent
 environment is intentionally outside the project scope.
