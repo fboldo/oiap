@@ -4,6 +4,15 @@
 	"type": "module",
 	"description": "Google Antigravity exporter for Open Interoperable Agent Plugins.",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fboldo/oiap.git",
+		"directory": "packages/exporter-antigravity"
+	},
+	"homepage": "https://github.com/fboldo/oiap#readme",
+	"bugs": {
+		"url": "https://github.com/fboldo/oiap/issues"
+	},
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",

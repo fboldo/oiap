@@ -4,6 +4,15 @@
 	"type": "module",
 	"description": "Command-line tooling for building Open Interoperable Agent Plugin bundles.",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fboldo/oiap.git",
+		"directory": "packages/cli"
+	},
+	"homepage": "https://github.com/fboldo/oiap#readme",
+	"bugs": {
+		"url": "https://github.com/fboldo/oiap/issues"
+	},
 	"bin": {
 		"oiap": "./dist/cli.js"
 	},

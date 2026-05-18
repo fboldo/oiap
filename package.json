@@ -3,6 +3,14 @@
 	"type": "module",
 	"private": true,
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fboldo/oiap.git"
+	},
+	"homepage": "https://github.com/fboldo/oiap#readme",
+	"bugs": {
+		"url": "https://github.com/fboldo/oiap/issues"
+	},
 	"packageManager": "bun@1.3.8",
 	"scripts": {
 		"build": "turbo run build",
