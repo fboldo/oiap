@@ -2,7 +2,6 @@
 	"name": "@oiap/exporter-claude-code",
 	"version": "0.0.0",
 	"type": "module",
-	"private": true,
 	"description": "Claude Code target exporter for Open Interoperable Agent Plugins.",
 	"exports": {
 		".": {
@@ -14,10 +13,14 @@
 		"dist",
 		"src"
 	],
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
-		"build": "bun run --cwd ../runtime build && tsc -p tsconfig.build.json",
-		"check": "tsc -p tsconfig.json --noEmit",
-		"test": "bun run build && bun test src"
+		"build": "tsc -p tsconfig.build.json",
+		"check": "bun run typecheck",
+		"test": "bun test src",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
 	},
 	"dependencies": {
 		"@oiap/core": "workspace:*",

@@ -2,7 +2,6 @@
 	"name": "@oiap/cli",
 	"version": "0.0.0",
 	"type": "module",
-	"private": true,
 	"description": "Command-line tooling for building Open Interoperable Agent Plugin bundles.",
 	"bin": {
 		"oiap": "./dist/cli.js"
@@ -17,10 +16,14 @@
 		"dist",
 		"src"
 	],
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
-		"build": "bun run --cwd ../runtime build && tsc -p ../exporter-antigravity/tsconfig.build.json && tsc -p ../exporter-claude-code/tsconfig.build.json && tsc -p ../exporter-codex/tsconfig.build.json && tsc -p ../exporter-cursor/tsconfig.build.json && tsc -p ../exporter-openclaw/tsconfig.build.json && tsc -p ../exporter-vscode-copilot/tsconfig.build.json && tsc -p tsconfig.build.json",
-		"check": "tsc -p tsconfig.json --noEmit",
-		"cli": "bun src/cli.ts"
+		"build": "tsc -p tsconfig.build.json",
+		"check": "bun run typecheck",
+		"cli": "bun src/cli.ts",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
 	},
 	"dependencies": {
 		"@oiap/core": "workspace:*",

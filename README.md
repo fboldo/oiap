@@ -26,6 +26,22 @@ Currently, the most notable effort in this space is the [Open Plugin Spec](https
 - [@oiap/exporter-openclaw](packages/exporter-openclaw) exports OIAP plugins into native OpenClaw plugin package artifacts.
 - [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) exports OIAP plugins into VS Code Copilot agent plugin artifacts.
 
+## Release Management
+
+OIAP uses Turbo for build, typecheck, and test orchestration. Package releases
+use Lerna fixed versioning so all `@oiap/*` packages ship with the same version.
+The release workflow lives at `.github/workflows/release.yml` and is manually
+dispatched from GitHub Actions. Manual dispatch defaults to a dry run.
+
+```sh
+bun run release:changed
+bun run release:version
+bun run release:publish
+```
+
+The root workspace remains private. Published packages are public scoped npm
+packages with `publishConfig.access` set to `public`.
+
 ## Design Notes
 
 - [Agent Plugin Authoring and Export Model](docs/platform-primitives.md) proposes the core OIAP primitives for defining a plugin once and exporting host-specific agent harness bundles.
