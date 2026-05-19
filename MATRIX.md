@@ -9,7 +9,7 @@ The matrix is about export support. It does not describe installing bundles into
 a user's live agent environment. OIAP generates target bundles, profiles,
 reports, and adapter code; adoption remains a host or user workflow.
 
-Last reviewed: 2026-05-15.
+Last reviewed: 2026-05-19.
 
 Use the [OIAP Platform Matrix Refresh](.agents/skills/oiap-platform-matrix-refresh/SKILL.md)
 skill when refreshing this document from current platform docs.
@@ -61,7 +61,7 @@ canonical repository, or vendor-owned release note is found.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code | core | Y | Y | Y | Y | Y | Y | Y | P | P | `packages/exporter-claude-code` |
 | Codex | core | Y | Y | Y | P | Y | Y | Y | F | Y | `packages/exporter-codex` |
-| OpenCode | bridge | P | P | P | P | P | ? | P | R | P | `packages/exporter-opencode` |
+| OpenCode | bridge | P | Y | Y | Y | P | Y | Y | R | P | `packages/exporter-opencode` |
 | GitHub Copilot CLI | thin | ? | P | ? | P | N | N | ? | F | N | `packages/exporter-github-copilot-cli` |
 | VS Code Copilot Chat | editor | Y | F | Y | Y | P | Y | Y | P | P | `packages/exporter-vscode-copilot` |
 | Aider | workflow | N | P | N | P | P | N | ? | F | P | `packages/exporter-aider` |
@@ -80,11 +80,12 @@ canonical repository, or vendor-owned release note is found.
 ## Adapter Status
 
 The repository now contains initial Antigravity, Claude Code, Codex, Cursor,
-OpenClaw, and VS Code Copilot exporter packages at
+OpenClaw, OpenCode, and VS Code Copilot exporter packages at
 `packages/exporter-antigravity`, `packages/exporter-claude-code`,
 `packages/exporter-codex`, `packages/exporter-cursor`,
-`packages/exporter-openclaw`, and `packages/exporter-vscode-copilot`. Other
-adapter paths in the matrix remain proposed package locations until implemented.
+`packages/exporter-openclaw`, `packages/exporter-opencode`, and
+`packages/exporter-vscode-copilot`. Other adapter paths in the matrix remain
+proposed package locations until implemented.
 
 When adapter packages are added, each target should expose:
 
@@ -127,8 +128,11 @@ High-fidelity config/package target. Verify skills, plugins, hooks, MCP,
 
 ### OpenCode
 
-Bridge target. Verify the current JavaScript extension API and whether hooks,
-events, MCP, and command surfaces are stable enough for a rich adapter.
+Bridge target. OpenCode documents project `opencode.json`, `AGENTS.md`,
+`.opencode/skills`, `.opencode/commands`, `.opencode/agents`, local or npm
+plugins, local and remote MCP servers, and permission rules. OIAP exports those
+project-local assets and uses a bundled JavaScript OpenCode plugin bridge for
+supported hook events.
 
 ### GitHub Copilot CLI
 
@@ -241,5 +245,6 @@ validation.
 | 2026-05-15 | Codex | Initial exporter package | Plugin/config renderer and generated raw-JS hook runtime exist; command-to-skill fallback remains | Add Codex conformance probes and compare against plugin validation when available |
 | 2026-05-15 | Cursor | Initial exporter package | Cursor plugin renderer and generated raw-JS hook runtime exist for documented plugin component folders | Add Cursor plugin diagnostics/conformance probes for `.cursor-plugin/plugin.json`, rules, skills, agents, commands, hooks, and MCP |
 | 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |
+| 2026-05-19 | OpenCode | Initial exporter package | Project config renderer, skills, commands, agents, MCP config, permission config, and generated TypeScript hook bridge exist | Add OpenCode conformance probes for `opencode.json`, `.opencode/*` discovery, plugin hook events, MCP config, and permission behavior |
 | 2026-05-15 | VS Code Copilot Chat | Initial exporter package | Copilot-format plugin renderer and generated raw-JS hook runtime exist; hook runner paths are plugin-relative because Copilot format has no root token | Add VS Code plugin diagnostics/conformance probes for root `plugin.json`, prompt commands, skills, agents, hooks, and MCP |
 | 2026-05-15 | all remaining targets | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |

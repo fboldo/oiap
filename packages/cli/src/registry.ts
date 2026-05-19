@@ -15,6 +15,7 @@ import {
 import { CODEX_TARGET, exportCodex } from "@oiap/exporter-codex";
 import { CURSOR_TARGET, exportCursor } from "@oiap/exporter-cursor";
 import { exportOpenClaw, OPENCLAW_TARGET } from "@oiap/exporter-openclaw";
+import { exportOpenCode, OPENCODE_TARGET } from "@oiap/exporter-opencode";
 import {
 	exportVsCodeCopilot,
 	VSCODE_COPILOT_TARGET,
@@ -53,6 +54,11 @@ export const exporterRegistry = {
 		target: OPENCLAW_TARGET,
 		packageName: "@oiap/exporter-openclaw",
 		exportBundle: exportOpenClaw,
+	},
+	[OPENCODE_TARGET]: {
+		target: OPENCODE_TARGET,
+		packageName: "@oiap/exporter-opencode",
+		exportBundle: exportOpenCode,
 	},
 	[VSCODE_COPILOT_TARGET]: {
 		target: VSCODE_COPILOT_TARGET,

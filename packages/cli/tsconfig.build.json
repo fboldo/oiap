@@ -13,6 +13,7 @@
 			"@oiap/exporter-claude-code": ["../exporter-claude-code/dist/index.d.ts"],
 			"@oiap/exporter-cursor": ["../exporter-cursor/dist/index.d.ts"],
 			"@oiap/exporter-openclaw": ["../exporter-openclaw/dist/index.d.ts"],
+			"@oiap/exporter-opencode": ["../exporter-opencode/dist/index.d.ts"],
 			"@oiap/exporter-vscode-copilot": [
 				"../exporter-vscode-copilot/dist/index.d.ts"
 			]

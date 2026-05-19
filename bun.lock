@@ -17,7 +17,7 @@
     },
     "packages/cli": {
       "name": "@oiap/cli",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "bin": {
         "oiap": "./dist/cli.js",
       },
@@ -28,6 +28,7 @@
         "@oiap/exporter-codex": "workspace:*",
         "@oiap/exporter-cursor": "workspace:*",
         "@oiap/exporter-openclaw": "workspace:*",
+        "@oiap/exporter-opencode": "workspace:*",
         "@oiap/exporter-vscode-copilot": "workspace:*",
       },
       "peerDependencies": {
@@ -36,14 +37,14 @@
     },
     "packages/core": {
       "name": "@oiap/core",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "peerDependencies": {
         "typescript": "^5",
       },
     },
     "packages/exporter-antigravity": {
       "name": "@oiap/exporter-antigravity",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
       },
@@ -53,7 +54,7 @@
     },
     "packages/exporter-claude-code": {
       "name": "@oiap/exporter-claude-code",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -64,7 +65,7 @@
     },
     "packages/exporter-codex": {
       "name": "@oiap/exporter-codex",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -75,7 +76,7 @@
     },
     "packages/exporter-cursor": {
       "name": "@oiap/exporter-cursor",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -86,7 +87,18 @@
     },
     "packages/exporter-openclaw": {
       "name": "@oiap/exporter-openclaw",
-      "version": "0.0.0",
+      "version": "0.1.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
+        "@oiap/runtime": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/exporter-opencode": {
+      "name": "@oiap/exporter-opencode",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -97,7 +109,7 @@
     },
     "packages/exporter-vscode-copilot": {
       "name": "@oiap/exporter-vscode-copilot",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -108,7 +120,7 @@
     },
     "packages/runtime": {
       "name": "@oiap/runtime",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
       },
@@ -285,6 +297,8 @@
     "@oiap/exporter-cursor": ["@oiap/exporter-cursor@workspace:packages/exporter-cursor"],
 
     "@oiap/exporter-openclaw": ["@oiap/exporter-openclaw@workspace:packages/exporter-openclaw"],
+
+    "@oiap/exporter-opencode": ["@oiap/exporter-opencode@workspace:packages/exporter-opencode"],
 
     "@oiap/exporter-vscode-copilot": ["@oiap/exporter-vscode-copilot@workspace:packages/exporter-vscode-copilot"],
 

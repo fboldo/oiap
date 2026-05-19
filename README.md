@@ -189,6 +189,7 @@ The CLI currently registers these exporters:
 | `codex` | [@oiap/exporter-codex](packages/exporter-codex) | Codex plugin and project-configuration artifacts |
 | `cursor` | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor plugin artifacts |
 | `openclaw` | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw plugin package artifacts |
+| `opencode` | [@oiap/exporter-opencode](packages/exporter-opencode) | OpenCode project config and plugin bridge artifacts |
 | `vscode-copilot-chat` | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat customization artifacts |
 
 For researched and planned platform coverage, see the
@@ -206,6 +207,7 @@ For researched and planned platform coverage, see the
 | [@oiap/exporter-codex](packages/exporter-codex) | Codex exporter |
 | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor exporter |
 | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw exporter |
+| [@oiap/exporter-opencode](packages/exporter-opencode) | OpenCode exporter |
 | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat exporter |
 
 ## Examples
