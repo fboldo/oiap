@@ -274,10 +274,12 @@ function reserveExportName(
 }
 
 function toIdentifier(value: string): string {
-	const identifier = value
+	const identifier = trimChar(
+		value
 		.trim()
-		.replace(/[^A-Za-z0-9_$]+/g, "_")
-		.replace(/^_+|_+$/g, "");
+		.replace(/[^A-Za-z0-9_$]+/g, "_"),
+		"_",
+	);
 
 	if (!identifier) {
 		return "hook";
@@ -288,6 +290,21 @@ function toIdentifier(value: string): string {
 	}
 
 	return `hook_${identifier}`;
+}
+
+function trimChar(value: string, char: string): string {
+	let start = 0;
+	let end = value.length;
+
+	while (start < end && value[start] === char) {
+		start += 1;
+	}
+
+	while (end > start && value[end - 1] === char) {
+		end -= 1;
+	}
+
+	return value.slice(start, end);
 }
 
 function quoteShellToken(value: string): string {

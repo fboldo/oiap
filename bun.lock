@@ -29,6 +29,7 @@
         "@oiap/exporter-cursor": "workspace:*",
         "@oiap/exporter-gemini-cli": "workspace:*",
         "@oiap/exporter-openclaw": "workspace:*",
+        "@oiap/exporter-opencode": "workspace:*",
         "@oiap/exporter-vscode-copilot": "workspace:*",
       },
       "peerDependencies": {
@@ -98,6 +99,17 @@
     },
     "packages/exporter-openclaw": {
       "name": "@oiap/exporter-openclaw",
+      "version": "0.1.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
+        "@oiap/runtime": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/exporter-opencode": {
+      "name": "@oiap/exporter-opencode",
       "version": "0.1.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
@@ -299,6 +311,8 @@
     "@oiap/exporter-gemini-cli": ["@oiap/exporter-gemini-cli@workspace:packages/exporter-gemini-cli"],
 
     "@oiap/exporter-openclaw": ["@oiap/exporter-openclaw@workspace:packages/exporter-openclaw"],
+
+    "@oiap/exporter-opencode": ["@oiap/exporter-opencode@workspace:packages/exporter-opencode"],
 
     "@oiap/exporter-vscode-copilot": ["@oiap/exporter-vscode-copilot@workspace:packages/exporter-vscode-copilot"],
 

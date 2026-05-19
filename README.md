@@ -190,6 +190,7 @@ The CLI currently registers these exporters:
 | `cursor` | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor plugin artifacts |
 | `gemini-cli` | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI extension artifacts |
 | `openclaw` | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw plugin package artifacts |
+| `opencode` | [@oiap/exporter-opencode](packages/exporter-opencode) | OpenCode project config and plugin bridge artifacts |
 | `vscode-copilot-chat` | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat customization artifacts |
 
 For researched and planned platform coverage, see the
@@ -208,6 +209,7 @@ For researched and planned platform coverage, see the
 | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor exporter |
 | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI exporter |
 | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw exporter |
+| [@oiap/exporter-opencode](packages/exporter-opencode) | OpenCode exporter |
 | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat exporter |
 
 ## Examples

@@ -1301,13 +1301,30 @@ function reservePath(value: string, usedPaths: Set<string>): string {
 }
 
 function slug(value: string, fallback = "asset"): string {
-	const normalized = value
+	const normalized = trimChar(
+		value
 		.trim()
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
+		.replace(/[^a-z0-9]+/g, "-"),
+		"-",
+	);
 
 	return normalized || fallback;
+}
+
+function trimChar(value: string, char: string): string {
+	let start = 0;
+	let end = value.length;
+
+	while (start < end && value[start] === char) {
+		start += 1;
+	}
+
+	while (end > start && value[end - 1] === char) {
+		end -= 1;
+	}
+
+	return value.slice(start, end);
 }
 
 function envVarName(value: string): string {
