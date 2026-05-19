@@ -1,6 +1,6 @@
 {
 	"name": "@oiap/exporter-opencode",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"type": "module",
 	"description": "OpenCode target exporter for Open Interoperable Agent Plugins.",
 	"license": "MIT",
