@@ -80,10 +80,11 @@ canonical repository, or vendor-owned release note is found.
 ## Adapter Status
 
 The repository now contains initial Antigravity, Claude Code, Codex, Cursor,
-OpenClaw, and VS Code Copilot exporter packages at
+Gemini CLI, OpenClaw, and VS Code Copilot exporter packages at
 `packages/exporter-antigravity`, `packages/exporter-claude-code`,
 `packages/exporter-codex`, `packages/exporter-cursor`,
-`packages/exporter-openclaw`, and `packages/exporter-vscode-copilot`. Other
+`packages/exporter-gemini-cli`, `packages/exporter-openclaw`, and
+`packages/exporter-vscode-copilot`. Other
 adapter paths in the matrix remain proposed package locations until implemented.
 
 When adapter packages are added, each target should expose:
@@ -175,9 +176,14 @@ regional documentation differences before copying assumptions from Trae.
 
 ### Gemini CLI
 
-High-fidelity extension target. Verify extension manifest shape, commands,
-`GEMINI.md`, skills, hooks, MCP, settings, sandbox behavior, approvals, and
-headless execution notes.
+High-fidelity extension target. Gemini CLI extensions use root
+`gemini-extension.json`, custom command TOML files under `commands/`, root or
+manifest-listed context files such as `GEMINI.md`, Agent Skills under `skills/`,
+preview sub-agent markdown under `agents/`, `hooks/hooks.json`, manifest
+`mcpServers`, extension settings, and policy TOML under `policies/`. OIAP emits
+native bundle artifacts for those surfaces and records degradations for preview
+sub-agents, unsupported permission-request hooks, non-generated runtime modules,
+and extension policy allow decisions that Gemini CLI intentionally ignores.
 
 ### Hermes
 
@@ -240,6 +246,7 @@ validation.
 | 2026-05-15 | Claude Code | Initial exporter package | Static renderer and generated raw-JS hook runtime exist | Add conformance probes before claiming full support |
 | 2026-05-15 | Codex | Initial exporter package | Plugin/config renderer and generated raw-JS hook runtime exist; command-to-skill fallback remains | Add Codex conformance probes and compare against plugin validation when available |
 | 2026-05-15 | Cursor | Initial exporter package | Cursor plugin renderer and generated raw-JS hook runtime exist for documented plugin component folders | Add Cursor plugin diagnostics/conformance probes for `.cursor-plugin/plugin.json`, rules, skills, agents, commands, hooks, and MCP |
+| 2026-05-19 | Gemini CLI | Initial exporter package | Gemini CLI extension renderer and generated raw-JS hook runtime exist for documented extension component folders | Add Gemini CLI extension validation probes for `gemini-extension.json`, commands, context files, skills, agents, hooks, MCP, and policies |
 | 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |
 | 2026-05-15 | VS Code Copilot Chat | Initial exporter package | Copilot-format plugin renderer and generated raw-JS hook runtime exist; hook runner paths are plugin-relative because Copilot format has no root token | Add VS Code plugin diagnostics/conformance probes for root `plugin.json`, prompt commands, skills, agents, hooks, and MCP |
 | 2026-05-15 | all remaining targets | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |

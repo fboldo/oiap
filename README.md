@@ -188,6 +188,7 @@ The CLI currently registers these exporters:
 | `claude-code` | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code-oriented plugin bundle artifacts |
 | `codex` | [@oiap/exporter-codex](packages/exporter-codex) | Codex plugin and project-configuration artifacts |
 | `cursor` | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor plugin artifacts |
+| `gemini-cli` | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI extension artifacts |
 | `openclaw` | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw plugin package artifacts |
 | `vscode-copilot-chat` | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat customization artifacts |
 
@@ -205,6 +206,7 @@ For researched and planned platform coverage, see the
 | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code exporter |
 | [@oiap/exporter-codex](packages/exporter-codex) | Codex exporter |
 | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor exporter |
+| [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI exporter |
 | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw exporter |
 | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat exporter |
 
