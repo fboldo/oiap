@@ -14,6 +14,7 @@ import {
 } from "@oiap/exporter-claude-code";
 import { CODEX_TARGET, exportCodex } from "@oiap/exporter-codex";
 import { CURSOR_TARGET, exportCursor } from "@oiap/exporter-cursor";
+import { exportGeminiCli, GEMINI_CLI_TARGET } from "@oiap/exporter-gemini-cli";
 import { exportOpenClaw, OPENCLAW_TARGET } from "@oiap/exporter-openclaw";
 import { exportOpenCode, OPENCODE_TARGET } from "@oiap/exporter-opencode";
 import {
@@ -49,6 +50,11 @@ export const exporterRegistry = {
 		target: CURSOR_TARGET,
 		packageName: "@oiap/exporter-cursor",
 		exportBundle: exportCursor,
+	},
+	[GEMINI_CLI_TARGET]: {
+		target: GEMINI_CLI_TARGET,
+		packageName: "@oiap/exporter-gemini-cli",
+		exportBundle: exportGeminiCli,
 	},
 	[OPENCLAW_TARGET]: {
 		target: OPENCLAW_TARGET,

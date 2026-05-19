@@ -19,6 +19,7 @@
 		"check": "bunx biome check .",
 		"test": "turbo run test",
 		"test:coverage": "bun run build && bun test --coverage packages/core/src packages/runtime/src packages/exporter-antigravity/src packages/exporter-claude-code/src packages/exporter-codex/src packages/exporter-cursor/src packages/exporter-openclaw/src packages/exporter-opencode/src packages/exporter-vscode-copilot/src",
+		"test:coverage": "bun run build && bun test --coverage packages/core/src packages/runtime/src packages/exporter-antigravity/src packages/exporter-claude-code/src packages/exporter-codex/src packages/exporter-cursor/src packages/exporter-gemini-cli/src packages/exporter-openclaw/src packages/exporter-opencode/src packages/exporter-vscode-copilot/src",
 		"typecheck": "turbo run typecheck",
 		"oiap": "bun packages/cli/src/cli.ts",
 		"precommit": "bun run check && bun run typecheck && bun run test",

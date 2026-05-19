@@ -12,6 +12,7 @@
 			"@oiap/exporter-codex": ["../exporter-codex/dist/index.d.ts"],
 			"@oiap/exporter-claude-code": ["../exporter-claude-code/dist/index.d.ts"],
 			"@oiap/exporter-cursor": ["../exporter-cursor/dist/index.d.ts"],
+			"@oiap/exporter-gemini-cli": ["../exporter-gemini-cli/dist/index.d.ts"],
 			"@oiap/exporter-openclaw": ["../exporter-openclaw/dist/index.d.ts"],
 			"@oiap/exporter-opencode": ["../exporter-opencode/dist/index.d.ts"],
 			"@oiap/exporter-vscode-copilot": [
