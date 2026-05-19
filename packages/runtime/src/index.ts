@@ -275,9 +275,7 @@ function reserveExportName(
 
 function toIdentifier(value: string): string {
 	const identifier = trimChar(
-		value
-		.trim()
-		.replace(/[^A-Za-z0-9_$]+/g, "_"),
+		value.trim().replace(/[^A-Za-z0-9_$]+/g, "_"),
 		"_",
 	);
 
