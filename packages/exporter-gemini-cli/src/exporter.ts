@@ -1303,9 +1303,9 @@ function reservePath(value: string, usedPaths: Set<string>): string {
 function slug(value: string, fallback = "asset"): string {
 	const normalized = trimChar(
 		value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-"),
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-"),
 		"-",
 	);
 
