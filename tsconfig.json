@@ -22,7 +22,6 @@
 			],
 			"@oiap/exporter-codex": ["./packages/exporter-codex/src/index.ts"],
 			"@oiap/exporter-cursor": ["./packages/exporter-cursor/src/index.ts"],
-			"@oiap/exporter-opencode": ["./packages/exporter-opencode/src/index.ts"],
 			"@oiap/exporter-gemini-cli": [
 				"./packages/exporter-gemini-cli/src/index.ts"
 			],
