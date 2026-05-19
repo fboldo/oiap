@@ -48,3 +48,16 @@ export default definePlugin({
 
 Relative paths resolve from the calling module. Pass `baseUrl: import.meta.url`
 when you want to make that relationship explicit.
+
+Installer tools can discover plugin declarations directly from source files
+without a separate manifest:
+
+```ts
+import { discoverPluginDeclarations } from "@oiap/core";
+
+const declarations = await discoverPluginDeclarations(".");
+```
+
+Discovery scans TypeScript and JavaScript source files for `definePlugin(...)`
+calls imported from `@oiap/core`, extracts static manifest fields when possible,
+and reports dynamic manifest metadata as partial instead of executing plugin code.

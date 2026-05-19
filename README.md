@@ -203,6 +203,7 @@ For researched and planned platform coverage, see the
 | [@oiap/core](packages/core) | Primitive TypeScript contracts and author-facing plugin API |
 | [@oiap/runtime](packages/runtime) | Portable hook runtime bundle generation used by target exporters |
 | [@oiap/cli](packages/cli) | CLI for building target bundles from plugin definition files |
+| [install-agent-plugin](packages/install-agent-plugin) | Consumer CLI for discovering installable OIAP declarations in repositories |
 | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity exporter |
 | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code exporter |
 | [@oiap/exporter-codex](packages/exporter-codex) | Codex exporter |
