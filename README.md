@@ -11,11 +11,12 @@
 		<td align="center" valign="middle"><img src="assets/icons/codex-color.png" alt="Codex" width="20" height="20" /> Codex</td>
 		<td align="center" valign="middle"><img src="assets/icons/githubcopilot.png" alt="GitHub Copilot" width="20" height="20" /> VS Code Copilot</td>
 		<td align="center" valign="middle"><img src="assets/icons/cursor.png" alt="Cursor" width="20" height="20" /> Cursor</td>
+		<td align="center" valign="middle">Cline</td>
 		<td align="center" valign="middle"><img src="assets/icons/openclaw-color.png" alt="OpenClaw" width="20" height="20" /> OpenClaw</td>
 		<td align="center" valign="middle"><img src="assets/icons/antigravity-color.png" alt="Google Antigravity" width="20" height="20" /> Google Antigravity</td>
 	</tr>
 	<tr>
-		<td colspan="6" align="center"><strong>and many more...</strong></td>
+		<td colspan="7" align="center"><strong>and many more...</strong></td>
 	</tr>
 </table>
 
@@ -186,6 +187,7 @@ The CLI currently registers these exporters:
 | --- | --- | --- |
 | `antigravity` | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity workspace bundle artifacts |
 | `claude-code` | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code-oriented plugin bundle artifacts |
+| `cline` | [@oiap/exporter-cline](packages/exporter-cline) | Cline project rules, skills, agents, hooks, and MCP artifacts |
 | `codex` | [@oiap/exporter-codex](packages/exporter-codex) | Codex plugin and project-configuration artifacts |
 | `cursor` | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor plugin artifacts |
 | `gemini-cli` | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI extension artifacts |
@@ -205,6 +207,7 @@ For researched and planned platform coverage, see the
 | [@oiap/cli](packages/cli) | CLI for building target bundles from plugin definition files |
 | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity exporter |
 | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code exporter |
+| [@oiap/exporter-cline](packages/exporter-cline) | Cline exporter |
 | [@oiap/exporter-codex](packages/exporter-codex) | Codex exporter |
 | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor exporter |
 | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI exporter |
