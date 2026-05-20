@@ -1,0 +1,48 @@
+{
+	"name": "install-agent-plugin",
+	"version": "0.2.0",
+	"type": "module",
+	"description": "Consumer CLI for discovering and installing Open Interoperable Agent Plugins.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fboldo/oiap.git",
+		"directory": "packages/install-agent-plugin"
+	},
+	"homepage": "https://github.com/fboldo/oiap#readme",
+	"bugs": {
+		"url": "https://github.com/fboldo/oiap/issues"
+	},
+	"bin": {
+		"install-agent-plugin": "./dist/cli.js"
+	},
+	"exports": {},
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"check": "bun run typecheck",
+		"cli": "bun src/cli.ts",
+		"test": "bun test src",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@oiap/core": "workspace:*",
+		"@oiap/exporter-antigravity": "workspace:*",
+		"@oiap/exporter-claude-code": "workspace:*",
+		"@oiap/exporter-codex": "workspace:*",
+		"@oiap/exporter-cursor": "workspace:*",
+		"@oiap/exporter-gemini-cli": "workspace:*",
+		"@oiap/exporter-openclaw": "workspace:*",
+		"@oiap/exporter-opencode": "workspace:*",
+		"@oiap/exporter-vscode-copilot": "workspace:*",
+		"esbuild": "^0.27.0"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}

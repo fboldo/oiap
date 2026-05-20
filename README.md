@@ -31,9 +31,9 @@ target platform.
 ## Project Status
 
 **⚠️ OIAP is early and actively evolving.** The current repository focuses on developer
-tooling: define plugins, normalize them into an intermediate representation, and
-generate bundle artifacts. Installing those artifacts into a user's local agent
-environment is intentionally outside the project scope.
+tooling: define plugins, normalize them into an intermediate representation,
+generate bundle artifacts, and install selected bundles into known local or
+global target directories when an installer path is defined.
 
 ## Features
 
@@ -178,6 +178,74 @@ npx oiap build my-review-plugin/oiap.plugin.ts --out dist/review-guard
 Each output directory contains host-native files plus OIAP metadata such as the
 bundle manifest, source map, and capability report.
 
+## Distribute Your Plugin
+
+You can distribute an OIAP plugin as a normal source repository. Consumers do
+not need a separate JSON declaration file or a prebuilt bundle: the installer
+discovers exported `definePlugin(...)` declarations directly from TypeScript and
+JavaScript source files, then installs the selected plugin for the requested
+agent target.
+
+For example, after publishing a repository that contains `oiap.plugin.ts`, users
+can inspect the installable plugin declarations with:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --list
+```
+
+Install a specific plugin into the target's local/project plugin directory:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --plugin review-guard --agent codex
+```
+
+Install into the target's global user plugin directory:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --plugin review-guard --agent codex --global
+```
+
+Pin installation to a branch, tag, or commit:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --ref v1.0.0 --plugin review-guard --agent claude-code
+```
+
+During development, install from a local checkout:
+
+```sh
+npx install-agent-plugin . --plugin review-guard --agent vscode-copilot-chat --overwrite
+```
+
+The installer chooses local and global destinations from each target profile, so
+users normally only choose `--agent` and optionally `--global`. Pass `--out <dir>`
+when you want to materialize the generated bundle somewhere explicit for review,
+CI, or debugging instead of installing it into the target's default location.
+
+When the plugin repository has a `package.json`, `install-agent-plugin` installs
+dependencies before loading the selected plugin declaration. For cloned
+repositories this happens in the temporary checkout; for local checkouts it runs
+only when `node_modules` is missing unless you pass `--install-deps`. Lifecycle
+scripts are ignored by default and can be enabled with `--allow-install-scripts`.
+Use `--no-install-deps` when you want to manage dependency installation yourself.
+
+Runtime hook dependencies should be declared in the plugin package's
+`dependencies` or `optionalDependencies`. When a generated hook runtime is
+present, the installer bundles hook handlers from the original plugin source, so
+hook code can use normal TypeScript or JavaScript imports, top-level constants,
+and local helpers. The generated `.oiap/runtime/hooks.mjs` is rewritten as a
+self-contained Node ESM module for the selected plugin.
+
+For plugin authors, the distribution checklist is intentionally small:
+
+1. Export a `definePlugin(...)` declaration from a source file in your repository.
+2. Keep the manifest `id`, `version`, and `supportedTargets` accurate.
+3. Document the
+	`npx install-agent-plugin <owner>/<repo> --plugin <id> --agent <target>`
+	command for the targets you support.
+4. Use tags or release branches when you want users to install a stable version
+	with `--ref`.
+
 ## Supported Targets
 
 The CLI currently registers these exporters:
@@ -203,6 +271,7 @@ For researched and planned platform coverage, see the
 | [@oiap/core](packages/core) | Primitive TypeScript contracts and author-facing plugin API |
 | [@oiap/runtime](packages/runtime) | Portable hook runtime bundle generation used by target exporters |
 | [@oiap/cli](packages/cli) | CLI for building target bundles from plugin definition files |
+| [install-agent-plugin](packages/install-agent-plugin) | Consumer CLI for discovering installable OIAP declarations in repositories |
 | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity exporter |
 | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code exporter |
 | [@oiap/exporter-codex](packages/exporter-codex) | Codex exporter |
@@ -223,6 +292,8 @@ agent plugin patterns:
   portable instruction/style plugin.
 - [feature-dev](examples/feature-dev) demonstrates commands, prompt modules,
   and custom agent definitions.
+- [discovery-installer-cli](examples/discovery-installer-cli) demonstrates a
+	plugin-owned installer CLI built on source discovery primitives.
 
 ## Design Documentation
 

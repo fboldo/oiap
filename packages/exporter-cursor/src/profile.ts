@@ -10,6 +10,16 @@ export const cursorProfile = defineHostProfile({
 		fidelity: "native",
 		notes: "Exports a Cursor plugin directory with .cursor-plugin/plugin.json.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "native",
+		notes:
+			"Local installs use project .cursor/plugins; global installs use ~/.cursor/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".cursor", "plugins", "{pluginId}"] },
+			global: { base: "home", segments: [".cursor", "plugins", "{pluginId}"] },
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

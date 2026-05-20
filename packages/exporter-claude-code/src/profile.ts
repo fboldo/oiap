@@ -10,6 +10,16 @@ export const claudeCodeProfile = defineHostProfile({
 		fidelity: "native",
 		notes: "Claude Code is treated as a first-class package target.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "native",
+		notes:
+			"Local installs use project .claude/plugins; global installs use ~/.claude/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".claude", "plugins", "{pluginId}"] },
+			global: { base: "home", segments: [".claude", "plugins", "{pluginId}"] },
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

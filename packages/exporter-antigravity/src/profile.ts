@@ -11,6 +11,19 @@ export const antigravityProfile = defineHostProfile({
 		notes:
 			"Antigravity does not document a native plugin package manifest; exports a reviewable workspace bundle with OIAP metadata.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "partial",
+		notes:
+			"Local installs use project .agents/plugins; global installs use ~/.gemini/antigravity/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".agents", "plugins", "{pluginId}"] },
+			global: {
+				base: "home",
+				segments: [".gemini", "antigravity", "plugins", "{pluginId}"],
+			},
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

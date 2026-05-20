@@ -11,6 +11,22 @@ export const vsCodeCopilotProfile = defineHostProfile({
 		notes:
 			"Exports a VS Code Copilot-format agent plugin with root plugin.json.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "partial",
+		notes:
+			"Local installs use project .vscode/copilot/plugins; global installs use the VS Code user config directory under copilot/plugins.",
+		paths: {
+			local: {
+				base: "cwd",
+				segments: [".vscode", "copilot", "plugins", "{pluginId}"],
+			},
+			global: {
+				base: "xdg-config-home",
+				segments: ["Code", "User", "copilot", "plugins", "{pluginId}"],
+			},
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",
