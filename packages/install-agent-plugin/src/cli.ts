@@ -15,11 +15,14 @@ import {
 	installPlugin,
 	isBuiltInInstallTarget,
 } from "@oiap/core";
+import { bundleInstalledHookRuntime } from "./hook-bundler";
 import { loadPluginFile } from "./plugin-loader";
 
 const execFileAsync = promisify(execFile);
 
 export type InstallAgentPluginCommand = InstallCommand | HelpCommand;
+
+export type DependencyInstallMode = "auto" | "always" | "never";
 
 export interface InstallCommand {
 	kind: "install";
@@ -33,6 +36,8 @@ export interface InstallCommand {
 	dryRun: boolean;
 	json: boolean;
 	overwrite: boolean;
+	dependencyInstall: DependencyInstallMode;
+	allowInstallScripts: boolean;
 }
 
 export interface HelpCommand {
@@ -86,6 +91,18 @@ interface OptionValue {
 	nextIndex: number;
 }
 
+interface DependencyInstallOptions {
+	mode: DependencyInstallMode;
+	allowScripts: boolean;
+}
+
+interface DependencyInstallPlan {
+	command: string;
+	args: string[];
+	cwd: string;
+	label: string;
+}
+
 export class InstallAgentPluginError extends Error {
 	readonly exitCode: number;
 
@@ -134,6 +151,8 @@ export function parseInstallAgentPluginArgs(
 	let dryRun = false;
 	let json = false;
 	let overwrite = false;
+	let dependencyInstall: DependencyInstallMode = "auto";
+	let allowInstallScripts = false;
 
 	for (let index = 0; index < args.length; index += 1) {
 		const argument = args[index];
@@ -145,6 +164,15 @@ export function parseInstallAgentPluginArgs(
 		const option = splitOption(argument);
 
 		switch (option.name) {
+			case "--install-deps":
+				dependencyInstall = "always";
+				break;
+			case "--no-install-deps":
+				dependencyInstall = "never";
+				break;
+			case "--allow-install-scripts":
+				allowInstallScripts = true;
+				break;
 			case "--global":
 			case "-g":
 				scope = "global";
@@ -228,6 +256,8 @@ export function parseInstallAgentPluginArgs(
 		dryRun,
 		json,
 		overwrite,
+		dependencyInstall,
+		allowInstallScripts,
 	};
 }
 
@@ -276,6 +306,11 @@ export async function runInstallAgentPlugin(
 			};
 		}
 
+		await installSourceDependencies(source, {
+			mode: command.dependencyInstall,
+			allowScripts: command.allowInstallScripts,
+		});
+
 		const plugin = await loadPluginFile(
 			declaration.filePath,
 			exportNameForLoad(declaration),
@@ -287,6 +322,11 @@ export async function runInstallAgentPlugin(
 			scope: command.scope,
 			overwrite: command.overwrite,
 		});
+		const bundledHookFiles = await bundleInstalledHookRuntime({
+			pluginFilePath: declaration.filePath,
+			declaration,
+			outDir: installResult.outDir,
+		});
 
 		return {
 			kind: "materialize",
@@ -296,7 +336,7 @@ export async function runInstallAgentPlugin(
 			scope: installResult.scope,
 			outDir: installResult.outDir,
 			explicitOutDir: installResult.explicitOutDir,
-			files: installResult.files,
+			files: [...installResult.files, ...bundledHookFiles],
 			report: installResult.report,
 		};
 	} finally {
@@ -399,6 +439,178 @@ async function resolvePluginSource(
 			await rm(tempDirectory, { recursive: true, force: true });
 		},
 	};
+}
+
+async function installSourceDependencies(
+	source: ResolvedPluginSource,
+	options: DependencyInstallOptions,
+): Promise<void> {
+	const plan = await sourceDependencyInstallPlan(source, options);
+
+	if (!plan) {
+		return;
+	}
+
+	await runDependencyInstall(plan);
+}
+
+async function sourceDependencyInstallPlan(
+	source: ResolvedPluginSource,
+	options: DependencyInstallOptions,
+): Promise<DependencyInstallPlan | undefined> {
+	if (options.mode === "never") {
+		return undefined;
+	}
+
+	if (!(await pathExists(join(source.directory, "package.json")))) {
+		return undefined;
+	}
+
+	if (
+		options.mode === "auto" &&
+		!source.temporary &&
+		(await pathExists(join(source.directory, "node_modules")))
+	) {
+		return undefined;
+	}
+
+	return await packageManagerInstallPlan(
+		source.directory,
+		options.allowScripts,
+	);
+}
+
+async function packageManagerInstallPlan(
+	directory: string,
+	allowScripts: boolean,
+): Promise<DependencyInstallPlan> {
+	if (await pathExists(join(directory, "bun.lock"))) {
+		return {
+			command: "bun",
+			args: [
+				"install",
+				"--frozen-lockfile",
+				...ignoreScriptsArgs("bun", allowScripts),
+			],
+			cwd: directory,
+			label: "bun install",
+		};
+	}
+
+	if (await pathExists(join(directory, "bun.lockb"))) {
+		return {
+			command: "bun",
+			args: [
+				"install",
+				"--frozen-lockfile",
+				...ignoreScriptsArgs("bun", allowScripts),
+			],
+			cwd: directory,
+			label: "bun install",
+		};
+	}
+
+	if (await pathExists(join(directory, "pnpm-lock.yaml"))) {
+		return {
+			command: "pnpm",
+			args: [
+				"install",
+				"--frozen-lockfile",
+				...ignoreScriptsArgs("pnpm", allowScripts),
+			],
+			cwd: directory,
+			label: "pnpm install",
+		};
+	}
+
+	if (await pathExists(join(directory, "yarn.lock"))) {
+		return {
+			command: "yarn",
+			args: [
+				"install",
+				"--frozen-lockfile",
+				...ignoreScriptsArgs("yarn", allowScripts),
+			],
+			cwd: directory,
+			label: "yarn install",
+		};
+	}
+
+	if (
+		(await pathExists(join(directory, "package-lock.json"))) ||
+		(await pathExists(join(directory, "npm-shrinkwrap.json")))
+	) {
+		return {
+			command: "npm",
+			args: ["ci", ...ignoreScriptsArgs("npm", allowScripts)],
+			cwd: directory,
+			label: "npm ci",
+		};
+	}
+
+	return {
+		command: "npm",
+		args: ["install", ...ignoreScriptsArgs("npm", allowScripts)],
+		cwd: directory,
+		label: "npm install",
+	};
+}
+
+function ignoreScriptsArgs(
+	packageManager: "bun" | "npm" | "pnpm" | "yarn",
+	allowScripts: boolean,
+): string[] {
+	if (allowScripts) {
+		return [];
+	}
+
+	switch (packageManager) {
+		case "bun":
+		case "npm":
+		case "pnpm":
+		case "yarn":
+			return ["--ignore-scripts"];
+	}
+}
+
+async function runDependencyInstall(
+	plan: DependencyInstallPlan,
+): Promise<void> {
+	try {
+		await execFileAsync(plan.command, plan.args, {
+			cwd: plan.cwd,
+			timeout: 300_000,
+			maxBuffer: 1024 * 1024 * 10,
+		});
+	} catch (error) {
+		throw new InstallAgentPluginError(
+			`Failed to install dependencies with ${plan.label}: ${formatProcessError(error)}`,
+		);
+	}
+}
+
+function formatProcessError(error: unknown): string {
+	if (!error || typeof error !== "object") {
+		return String(error);
+	}
+
+	const processError = error as {
+		message?: unknown;
+		stderr?: unknown;
+		stdout?: unknown;
+	};
+	const stderr =
+		typeof processError.stderr === "string" ? processError.stderr.trim() : "";
+	const stdout =
+		typeof processError.stdout === "string" ? processError.stdout.trim() : "";
+
+	return (
+		stderr ||
+		stdout ||
+		(typeof processError.message === "string"
+			? processError.message
+			: String(error))
+	);
 }
 
 function matchesPluginSelector(
@@ -604,10 +816,13 @@ Options:
 	-o, --out <dir>         Override the target install path and write the selected bundle to a directory.
   --ref <ref>             Git branch or tag for owner/repo sources.
   --dry-run               Resolve source, plugin, and agent without loading or writing.
+	--install-deps           Always install source package dependencies before loading the plugin.
+	--no-install-deps        Do not install source or runtime dependencies.
+	--allow-install-scripts  Allow package manager lifecycle scripts while installing dependencies.
 	--overwrite             Replace an existing install or --out directory.
   --json                  Print machine-readable output.
 
-By default, plugins install to the selected target's local/project directory. Use --global for user-level installation or --out for a reviewable bundle directory.
+By default, plugins install to the selected target's local/project directory. The installer installs dependencies for cloned repositories and local checkouts without node_modules, ignoring lifecycle scripts unless --allow-install-scripts is passed. Use --global for user-level installation or --out for a reviewable bundle directory.
 `;
 
 if (isCliEntrypoint()) {

@@ -12,6 +12,19 @@ The CLI discovers `definePlugin(...)` calls directly from TypeScript and
 JavaScript source files through `@oiap/core`; it does not require a separate JSON
 declaration file.
 
+Before loading the selected plugin declaration, the installer installs source
+dependencies when it clones a repository or when a local checkout has a
+`package.json` but no `node_modules`. Lockfiles are used to choose Bun, pnpm,
+Yarn, or npm; lifecycle scripts are ignored unless you pass
+`--allow-install-scripts`. Use `--no-install-deps` to disable dependency
+installation.
+
+When the exported bundle contains the generated OIAP hook runtime, the installer
+bundles hook handler modules from the original plugin source. Hook code can use
+normal TypeScript or JavaScript imports, top-level constants, and local helpers;
+the generated `.oiap/runtime/hooks.mjs` is rewritten as a self-contained Node ESM
+module for the selected plugin.
+
 This package does not expose a library API. If you want to provide the
 installation of the plugin using your own CLI, import `installPlugin()` from
 `@oiap/core`, shape the CLI however you want, and pass the selected plugin

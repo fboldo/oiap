@@ -222,6 +222,20 @@ users normally only choose `--agent` and optionally `--global`. Pass `--out <dir
 when you want to materialize the generated bundle somewhere explicit for review,
 CI, or debugging instead of installing it into the target's default location.
 
+When the plugin repository has a `package.json`, `install-agent-plugin` installs
+dependencies before loading the selected plugin declaration. For cloned
+repositories this happens in the temporary checkout; for local checkouts it runs
+only when `node_modules` is missing unless you pass `--install-deps`. Lifecycle
+scripts are ignored by default and can be enabled with `--allow-install-scripts`.
+Use `--no-install-deps` when you want to manage dependency installation yourself.
+
+Runtime hook dependencies should be declared in the plugin package's
+`dependencies` or `optionalDependencies`. When a generated hook runtime is
+present, the installer bundles hook handlers from the original plugin source, so
+hook code can use normal TypeScript or JavaScript imports, top-level constants,
+and local helpers. The generated `.oiap/runtime/hooks.mjs` is rewritten as a
+self-contained Node ESM module for the selected plugin.
+
 For plugin authors, the distribution checklist is intentionally small:
 
 1. Export a `definePlugin(...)` declaration from a source file in your repository.
