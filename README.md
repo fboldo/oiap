@@ -178,6 +178,60 @@ npx oiap build my-review-plugin/oiap.plugin.ts --out dist/review-guard
 Each output directory contains host-native files plus OIAP metadata such as the
 bundle manifest, source map, and capability report.
 
+## Distribute Your Plugin
+
+You can distribute an OIAP plugin as a normal source repository. Consumers do
+not need a separate JSON declaration file or a prebuilt bundle: the installer
+discovers exported `definePlugin(...)` declarations directly from TypeScript and
+JavaScript source files, then installs the selected plugin for the requested
+agent target.
+
+For example, after publishing a repository that contains `oiap.plugin.ts`, users
+can inspect the installable plugin declarations with:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --list
+```
+
+Install a specific plugin into the target's local/project plugin directory:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --plugin review-guard --agent codex
+```
+
+Install into the target's global user plugin directory:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --plugin review-guard --agent codex --global
+```
+
+Pin installation to a branch, tag, or commit:
+
+```sh
+npx install-agent-plugin your-org/your-plugin --ref v1.0.0 --plugin review-guard --agent claude-code
+```
+
+During development, install from a local checkout:
+
+```sh
+npx install-agent-plugin . --plugin review-guard --agent vscode-copilot-chat --overwrite
+```
+
+The installer chooses local and global destinations from each target profile, so
+users normally only choose `--agent` and optionally `--global`. Pass `--out <dir>`
+when you want to materialize the generated bundle somewhere explicit for review,
+CI, or debugging instead of installing it into the target's default location.
+
+For plugin authors, the distribution checklist is intentionally small:
+
+1. Export a `definePlugin(...)` declaration from a source file in your repository.
+2. Keep the manifest `id`, `version`, and `supportedTargets` accurate.
+3. Document the
+	`npx install-agent-plugin <owner>/<repo> --plugin <id> --agent <target>`
+	command for the targets you support.
+4. Use tags or release branches when you want users to install a stable version
+	with `--ref`.
+
 ## Supported Targets
 
 The CLI currently registers these exporters:
