@@ -26,6 +26,7 @@ export type KnownTargetId =
 	| "kimi-code"
 	| "kiro"
 	| "pi"
+	| "cline"
 	| "cursor"
 	| "antigravity";
 

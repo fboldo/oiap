@@ -39,6 +39,7 @@
 		"@oiap/core": "workspace:*",
 		"@oiap/exporter-antigravity": "workspace:*",
 		"@oiap/exporter-claude-code": "workspace:*",
+		"@oiap/exporter-cline": "workspace:*",
 		"@oiap/exporter-codex": "workspace:*",
 		"@oiap/exporter-cursor": "workspace:*",
 		"@oiap/exporter-gemini-cli": "workspace:*",

@@ -3,9 +3,9 @@
 OIAP exists to give plugin authors one stable authoring model and many target
 bundle exporters. Authors define a plugin once using host-neutral primitives.
 OIAP validates that definition, normalizes it into a portable intermediate
-representation, and exports or installs host-native bundles for agent harnesses such as
-Claude Code, Codex, Cursor, VS Code Copilot Chat, OpenClaw, Google Antigravity,
-and future targets.
+representation, and exports or installs host-native bundles for agent harnesses
+such as Claude Code, Codex, Cline, Cursor, VS Code Copilot Chat, OpenClaw,
+Google Antigravity, and future targets.
 
 The exporter scope is bundle generation. OIAP produces validated bundle
 directories, manifests, generated code, rules, skills, workflows, MCP
@@ -32,7 +32,7 @@ one platform's vocabulary.
 | Term | Meaning |
 | --- | --- |
 | OIAP | Open Interoperable Agent Plugins. The SDK and tooling for defining an agent plugin once and exporting host-specific bundles. |
-| Agent harness | A product or runtime that hosts an AI coding agent, such as Claude Code, Codex, Gemini CLI, Cursor, Kiro, or another target platform. |
+| Agent harness | A product or runtime that hosts an AI coding agent, such as Claude Code, Codex, Cline, Gemini CLI, Cursor, Kiro, or another target platform. |
 | Host | The specific agent harness receiving an exported OIAP bundle. |
 | Target | A named export destination, usually one host plus a profile, operating-system dialect, region, or runtime variant. |
 | Platform profile | The structured description of what a target supports: packages, rules, skills, commands, hooks, MCP, runtime code, permissions, and policy. |
@@ -145,6 +145,7 @@ agent ecosystem:
 | --- | --- |
 | Claude Code | Plugin package, skills, commands, agents, hooks, MCP, settings |
 | Codex | Plugin/config package, skills, `AGENTS.md`, hooks, MCP, rules, custom agents |
+| Cline | Project rules, Agent Skills, file hooks, MCP config, project agents |
 | OpenCode | Skill/rule assets plus JavaScript extension assets where supported |
 | GitHub Copilot CLI | Thin skill or instruction bundle until richer surfaces are confirmed |
 | VS Code Copilot Chat | Workspace custom instructions and editor-focused guidance |

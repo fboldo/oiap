@@ -9,7 +9,7 @@ The matrix is about export support. It does not describe installing bundles into
 a user's live agent environment. OIAP generates target bundles, profiles,
 reports, and adapter code; adoption remains a host or user workflow.
 
-Last reviewed: 2026-05-19.
+Last reviewed: 2026-05-20.
 
 Use the [OIAP Platform Matrix Refresh](.agents/skills/oiap-platform-matrix-refresh/SKILL.md)
 skill when refreshing this document from current platform docs.
@@ -39,6 +39,7 @@ canonical repository, or vendor-owned release note is found.
 | --- | --- | --- | --- |
 | Claude Code | <https://docs.anthropic.com/en/docs/claude-code/overview> | official docs | Verify feature-specific pages for plugins, skills, commands, hooks, MCP, and settings. |
 | Codex | <https://developers.openai.com/codex> | official docs | Verify plugins, skills, AGENTS.md, hooks, MCP, subagents, rules, approvals, and sandbox settings. |
+| Cline | <https://docs.cline.bot/> | official docs | Verify project config pages for rules, skills, hooks, agents, plugins, MCP, and canonical `cline/cline` repository parser behavior. |
 | OpenCode | <https://opencode.ai/docs> | official docs | Verify the JavaScript extension API and hook/event surfaces. |
 | GitHub Copilot CLI | <https://docs.github.com/en/copilot> | official docs | Verify whether CLI-specific extension surfaces still exist and are current. |
 | VS Code Copilot Chat | <https://code.visualstudio.com/docs/copilot/overview> | official docs | Also verify customization docs for skills, prompts, instructions, agents, hooks, and MCP. |
@@ -61,6 +62,7 @@ canonical repository, or vendor-owned release note is found.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code | core | Y | Y | Y | Y | Y | Y | Y | P | P | `packages/exporter-claude-code` |
 | Codex | core | Y | Y | Y | P | Y | Y | Y | F | Y | `packages/exporter-codex` |
+| Cline | core | P | Y | P | F | Y | P | Y | R | P | `packages/exporter-cline` |
 | OpenCode | bridge | P | Y | Y | Y | P | Y | Y | R | P | `packages/exporter-opencode` |
 | GitHub Copilot CLI | thin | ? | P | ? | P | N | N | ? | F | N | `packages/exporter-github-copilot-cli` |
 | VS Code Copilot Chat | editor | Y | F | Y | Y | P | Y | Y | P | P | `packages/exporter-vscode-copilot` |
@@ -79,10 +81,10 @@ canonical repository, or vendor-owned release note is found.
 
 ## Adapter Status
 
-The repository now contains initial Antigravity, Claude Code, Codex, Cursor,
-Gemini CLI, OpenClaw, OpenCode, and VS Code Copilot exporter packages at
+The repository now contains initial Antigravity, Claude Code, Cline, Codex,
+Cursor, Gemini CLI, OpenClaw, OpenCode, and VS Code Copilot exporter packages at
 `packages/exporter-antigravity`, `packages/exporter-claude-code`,
-`packages/exporter-codex`, `packages/exporter-cursor`,
+`packages/exporter-cline`, `packages/exporter-codex`, `packages/exporter-cursor`,
 `packages/exporter-gemini-cli`, `packages/exporter-openclaw`,
 `packages/exporter-opencode`, and `packages/exporter-vscode-copilot`. Other
 adapter paths in the matrix remain proposed package locations until implemented.
@@ -125,6 +127,16 @@ against current docs.
 
 High-fidelity config/package target. Verify skills, plugins, hooks, MCP,
 `AGENTS.md`, approval rules, sandbox settings, and custom agents.
+
+### Cline
+
+Project config target. Cline documents `.clinerules/` project rules,
+`.cline/skills` Agent Skills, `.cline/hooks` file hooks, `.cline/mcp.json`,
+project agent config files, and SDK plugin packages for Cline SDK, CLI, and
+Kanban workflows. OIAP exports project-local assets for those documented
+surfaces and records degradations for command-as-skill lowering, policy evidence,
+agent tool validation, and OIAP hook result controls that Cline file hooks cannot
+apply directly.
 
 ### OpenCode
 
@@ -248,6 +260,7 @@ validation.
 | --- | --- | --- | --- | --- |
 | 2026-05-15 | Claude Code | Initial exporter package | Static renderer and generated raw-JS hook runtime exist | Add conformance probes before claiming full support |
 | 2026-05-15 | Codex | Initial exporter package | Plugin/config renderer and generated raw-JS hook runtime exist; command-to-skill fallback remains | Add Codex conformance probes and compare against plugin validation when available |
+| 2026-05-20 | Cline | Initial exporter package | Project config renderer, skills, command-as-skill fallback, agents, MCP config, policy evidence, and generated raw-JS hook runtime exist | Add Cline conformance probes for `.clinerules/`, `.cline/skills`, `.cline/hooks`, `.cline/agents`, `.cline/mcp.json`, and file hook control output |
 | 2026-05-15 | Cursor | Initial exporter package | Cursor plugin renderer and generated raw-JS hook runtime exist for documented plugin component folders | Add Cursor plugin diagnostics/conformance probes for `.cursor-plugin/plugin.json`, rules, skills, agents, commands, hooks, and MCP |
 | 2026-05-19 | Gemini CLI | Initial exporter package | Gemini CLI extension renderer and generated raw-JS hook runtime exist for documented extension component folders | Add Gemini CLI extension validation probes for `gemini-extension.json`, commands, context files, skills, agents, hooks, MCP, and policies |
 | 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |

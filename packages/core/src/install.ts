@@ -69,6 +69,12 @@ const builtInInstallTargetDefinitions = {
 		exportName: "exportClaudeCode",
 		profileExportName: "claudeCodeProfile",
 	},
+	cline: {
+		id: "cline",
+		packageName: "@oiap/exporter-cline",
+		exportName: "exportCline",
+		profileExportName: "clineProfile",
+	},
 	codex: {
 		id: "codex",
 		packageName: "@oiap/exporter-codex",

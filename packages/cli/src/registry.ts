@@ -12,6 +12,7 @@ import {
 	CLAUDE_CODE_TARGET,
 	exportClaudeCode,
 } from "@oiap/exporter-claude-code";
+import { CLINE_TARGET, exportCline } from "@oiap/exporter-cline";
 import { CODEX_TARGET, exportCodex } from "@oiap/exporter-codex";
 import { CURSOR_TARGET, exportCursor } from "@oiap/exporter-cursor";
 import { exportGeminiCli, GEMINI_CLI_TARGET } from "@oiap/exporter-gemini-cli";
@@ -40,6 +41,11 @@ export const exporterRegistry = {
 		target: CLAUDE_CODE_TARGET,
 		packageName: "@oiap/exporter-claude-code",
 		exportBundle: exportClaudeCode,
+	},
+	[CLINE_TARGET]: {
+		target: CLINE_TARGET,
+		packageName: "@oiap/exporter-cline",
+		exportBundle: exportCline,
 	},
 	[CODEX_TARGET]: {
 		target: CODEX_TARGET,

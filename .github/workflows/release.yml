@@ -32,6 +32,14 @@ on:
         required: false
         type: boolean
         default: true
+      publish-auth:
+        description: "Publish auth mode. Use trusted-publishing for normal releases or npm-token when bootstrapping a brand-new package."
+        required: true
+        type: choice
+        default: trusted-publishing
+        options:
+          - trusted-publishing
+          - npm-token
 
 permissions:
   contents: write
@@ -54,6 +62,7 @@ jobs:
       TURBO_TELEMETRY_DISABLED: "1"
       VERSION_INPUT: ${{ inputs.version }}
       NPM_TAG: ${{ inputs.npm-tag }}
+      PUBLISH_AUTH_INPUT: ${{ inputs.publish-auth }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,6 +76,10 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for trusted publishing
+        if: ${{ !inputs.dry-run && inputs.publish-auth == 'trusted-publishing' }}
+        run: npm install -g npm@^11.10.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -101,12 +114,12 @@ jobs:
           done
 
       - name: Verify npm token
-        if: ${{ !inputs.dry-run }}
+        if: ${{ !inputs.dry-run && inputs.publish-auth == 'npm-token' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN is required when dry-run is false." >&2
+            echo "NPM_TOKEN is required when publish-auth is npm-token." >&2
             exit 1
           fi
 
@@ -119,8 +132,14 @@ jobs:
             bunx lerna version "$VERSION_INPUT" --no-push --no-commit-hooks --yes
           fi
 
-      - name: Publish packages
-        if: ${{ !inputs.dry-run }}
+      - name: Publish packages with npm trusted publishing
+        if: ${{ !inputs.dry-run && inputs.publish-auth == 'trusted-publishing' }}
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+        run: bun run release:publish -- --yes --dist-tag "$NPM_TAG"
+
+      - name: Publish packages with npm token
+        if: ${{ !inputs.dry-run && inputs.publish-auth == 'npm-token' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
@@ -144,5 +163,6 @@ jobs:
           echo "- **Version input:** $VERSION_INPUT" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Resolved version:** ${{ steps.release_metadata.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **npm tag:** $NPM_TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Publish auth:** $PUBLISH_AUTH_INPUT" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Dry run:** ${{ inputs.dry-run }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Commit:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
