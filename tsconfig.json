@@ -20,6 +20,7 @@
 			"@oiap/exporter-antigravity": [
 				"./packages/exporter-antigravity/src/index.ts"
 			],
+			"@oiap/exporter-cline": ["./packages/exporter-cline/src/index.ts"],
 			"@oiap/exporter-codex": ["./packages/exporter-codex/src/index.ts"],
 			"@oiap/exporter-cursor": ["./packages/exporter-cursor/src/index.ts"],
 			"@oiap/exporter-gemini-cli": [
