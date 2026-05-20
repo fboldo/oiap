@@ -31,9 +31,9 @@ target platform.
 ## Project Status
 
 **⚠️ OIAP is early and actively evolving.** The current repository focuses on developer
-tooling: define plugins, normalize them into an intermediate representation, and
-generate bundle artifacts. Installing those artifacts into a user's local agent
-environment is intentionally outside the project scope.
+tooling: define plugins, normalize them into an intermediate representation,
+generate bundle artifacts, and install selected bundles into known local or
+global target directories when an installer path is defined.
 
 ## Features
 
@@ -224,6 +224,8 @@ agent plugin patterns:
   portable instruction/style plugin.
 - [feature-dev](examples/feature-dev) demonstrates commands, prompt modules,
   and custom agent definitions.
+- [discovery-installer-cli](examples/discovery-installer-cli) demonstrates a
+	plugin-owned installer CLI built on source discovery primitives.
 
 ## Design Documentation
 

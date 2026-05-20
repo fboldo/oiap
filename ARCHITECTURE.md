@@ -3,16 +3,17 @@
 OIAP exists to give plugin authors one stable authoring model and many target
 bundle exporters. Authors define a plugin once using host-neutral primitives.
 OIAP validates that definition, normalizes it into a portable intermediate
-representation, and exports host-native bundles for agent harnesses such as
+representation, and exports or installs host-native bundles for agent harnesses such as
 Claude Code, Codex, Cursor, VS Code Copilot Chat, OpenClaw, Google Antigravity,
 and future targets.
 
-The scope is export, not placement. OIAP produces validated bundle directories,
-manifests, generated code, rules, skills, workflows, MCP configuration fragments,
-policy fragments, source maps, and compatibility reports. It does not mutate a
-user's home directory, edit live host configuration, auto-enable permissions, or
-install bundles into a running agent harness. A host package manager, host CLI,
-consumer workflow, or human decides how exported artifacts are adopted.
+The exporter scope is bundle generation. OIAP produces validated bundle
+directories, manifests, generated code, rules, skills, workflows, MCP
+configuration fragments, policy fragments, source maps, and compatibility
+reports. Installer helpers may copy a selected bundle into a target's known
+local or global plugin directory when that destination is declared by the target
+profile, but they do not edit live host configuration, auto-enable permissions,
+or make account, marketplace, or organization policy decisions.
 
 The core promise is simple:
 
@@ -125,7 +126,7 @@ OIAP should own:
 
 OIAP should not own:
 
-- Writing directly into a user's global agent configuration.
+- Editing a user's global agent configuration outside an explicit install flow.
 - Editing a repository's live instruction files by default.
 - Auto-enabling hooks, MCP servers, permissions, or sandbox exceptions.
 - Host account auth, marketplace publishing, or organization policy decisions.
@@ -1050,6 +1051,7 @@ export interface HostProfile {
   id: TargetId;
   verification: "official" | "profile-derived" | "thin";
   packageSupport?: PackageSupport;
+  installSupport?: InstallSupport;
   skillSupport?: SkillSupport;
   commandSupport?: CommandSupport;
   ruleSupport?: RuleSupport;

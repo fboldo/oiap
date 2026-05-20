@@ -10,6 +10,16 @@ export const codexProfile = defineHostProfile({
 		fidelity: "native",
 		notes: "Exports a Codex plugin folder with .codex-plugin/plugin.json.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "native",
+		notes:
+			"Local installs use project .codex/plugins; global installs use ~/.codex/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".codex", "plugins", "{pluginId}"] },
+			global: { base: "home", segments: [".codex", "plugins", "{pluginId}"] },
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

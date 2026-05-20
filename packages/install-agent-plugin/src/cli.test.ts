@@ -24,6 +24,7 @@ describe("parseInstallAgentPluginArgs", () => {
 			pluginSelector: undefined,
 			agent: undefined,
 			outDir: undefined,
+			scope: "local",
 			ref: "main",
 			list: true,
 			dryRun: false,
@@ -42,6 +43,7 @@ describe("parseInstallAgentPluginArgs", () => {
 				"--out",
 				"dist/review-guard",
 				"--overwrite",
+				"--global",
 			]),
 		).toMatchObject({
 			kind: "install",
@@ -49,6 +51,7 @@ describe("parseInstallAgentPluginArgs", () => {
 			pluginSelector: "review-guard",
 			agent: "claude-code",
 			outDir: "dist/review-guard",
+			scope: "global",
 			overwrite: true,
 		});
 	});

@@ -137,8 +137,15 @@
         "install-agent-plugin": "./dist/cli.js",
       },
       "dependencies": {
-        "@oiap/cli": "workspace:*",
         "@oiap/core": "workspace:*",
+        "@oiap/exporter-antigravity": "workspace:*",
+        "@oiap/exporter-claude-code": "workspace:*",
+        "@oiap/exporter-codex": "workspace:*",
+        "@oiap/exporter-cursor": "workspace:*",
+        "@oiap/exporter-gemini-cli": "workspace:*",
+        "@oiap/exporter-openclaw": "workspace:*",
+        "@oiap/exporter-opencode": "workspace:*",
+        "@oiap/exporter-vscode-copilot": "workspace:*",
       },
       "peerDependencies": {
         "typescript": "^5",

@@ -11,6 +11,19 @@ export const openCodeProfile = defineHostProfile({
 		notes:
 			"Exports a project-local OpenCode config bundle with opencode.json and .opencode companion assets; npm plugin packaging is not generated yet.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "partial",
+		notes:
+			"Local installs use project .opencode/plugins; global installs use ~/.config/opencode/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".opencode", "plugins", "{pluginId}"] },
+			global: {
+				base: "home",
+				segments: [".config", "opencode", "plugins", "{pluginId}"],
+			},
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

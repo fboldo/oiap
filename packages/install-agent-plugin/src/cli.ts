@@ -1,22 +1,21 @@
 #!/usr/bin/env bun
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
-	getRegisteredExporter,
-	loadPluginFile,
-	registeredTargets,
-} from "@oiap/cli";
-import {
+	builtInInstallTargets,
 	type DiscoveredPluginDeclaration,
 	discoverPluginDeclarations,
-	type RenderedFile,
-	type TargetBundle,
+	type InstallPluginResult,
+	type InstallPluginScope,
+	installPlugin,
+	isBuiltInInstallTarget,
 } from "@oiap/core";
+import { loadPluginFile } from "./plugin-loader";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +27,7 @@ export interface InstallCommand {
 	pluginSelector?: string;
 	agent?: string;
 	outDir?: string;
+	scope: InstallPluginScope;
 	ref?: string;
 	list: boolean;
 	dryRun: boolean;
@@ -55,6 +55,7 @@ export interface DryRunResult {
 	source: ResolvedPluginSourceSummary;
 	declaration: DiscoveredPluginDeclaration;
 	target: string;
+	scope: InstallPluginScope;
 }
 
 export interface MaterializeResult {
@@ -62,9 +63,11 @@ export interface MaterializeResult {
 	source: ResolvedPluginSourceSummary;
 	declaration: DiscoveredPluginDeclaration;
 	target: string;
+	scope: InstallPluginScope;
 	outDir: string;
+	explicitOutDir: boolean;
 	files: string[];
-	report: TargetBundle["report"];
+	report: InstallPluginResult["report"];
 }
 
 export interface ResolvedPluginSourceSummary {
@@ -81,12 +84,6 @@ interface ResolvedPluginSource extends ResolvedPluginSourceSummary {
 interface OptionValue {
 	value: string;
 	nextIndex: number;
-}
-
-interface WriteBundleOptions {
-	bundle: TargetBundle;
-	outDir: string;
-	overwrite: boolean;
 }
 
 export class InstallAgentPluginError extends Error {
@@ -131,6 +128,7 @@ export function parseInstallAgentPluginArgs(
 	let pluginSelector: string | undefined;
 	let agent: string | undefined;
 	let outDir: string | undefined;
+	let scope: InstallPluginScope = "local";
 	let ref: string | undefined;
 	let list = false;
 	let dryRun = false;
@@ -147,6 +145,14 @@ export function parseInstallAgentPluginArgs(
 		const option = splitOption(argument);
 
 		switch (option.name) {
+			case "--global":
+			case "-g":
+				scope = "global";
+				break;
+			case "--local":
+			case "--project":
+				scope = "local";
+				break;
 			case "--plugin":
 			case "-p": {
 				const parsed = readOptionValue(args, index, option.value, option.name);
@@ -216,6 +222,7 @@ export function parseInstallAgentPluginArgs(
 		pluginSelector,
 		agent,
 		outDir,
+		scope,
 		ref,
 		list,
 		dryRun,
@@ -244,15 +251,13 @@ export async function runInstallAgentPlugin(
 
 		if (!command.agent) {
 			throw new InstallAgentPluginError(
-				`Missing --agent. Available agents: ${registeredTargets.join(", ")}`,
+				`Missing --agent. Available agents: ${builtInInstallTargets.join(", ")}`,
 			);
 		}
 
-		const exporter = getRegisteredExporter(command.agent);
-
-		if (!exporter) {
+		if (!isBuiltInInstallTarget(command.agent)) {
 			throw new InstallAgentPluginError(
-				`Unknown agent: ${command.agent}. Available agents: ${registeredTargets.join(", ")}`,
+				`Unknown agent: ${command.agent}. Available agents: ${builtInInstallTargets.join(", ")}`,
 			);
 		}
 
@@ -267,6 +272,7 @@ export async function runInstallAgentPlugin(
 				source: sourceSummary(source),
 				declaration,
 				target: command.agent,
+				scope: command.scope,
 			};
 		}
 
@@ -274,13 +280,11 @@ export async function runInstallAgentPlugin(
 			declaration.filePath,
 			exportNameForLoad(declaration),
 		);
-		const bundle = exporter.exportBundle(plugin);
-		const outDir = resolve(
-			command.outDir ?? defaultOutputDir(declaration, command.agent),
-		);
-		const files = await writeTargetBundle({
-			bundle,
-			outDir,
+		const installResult = await installPlugin({
+			plugin,
+			target: command.agent,
+			outDir: command.outDir,
+			scope: command.scope,
 			overwrite: command.overwrite,
 		});
 
@@ -288,10 +292,12 @@ export async function runInstallAgentPlugin(
 			kind: "materialize",
 			source: sourceSummary(source),
 			declaration,
-			target: command.agent,
-			outDir,
-			files,
-			report: bundle.report,
+			target: installResult.target,
+			scope: installResult.scope,
+			outDir: installResult.outDir,
+			explicitOutDir: installResult.explicitOutDir,
+			files: installResult.files,
+			report: installResult.report,
 		};
 	} finally {
 		await source.cleanup();
@@ -395,78 +401,6 @@ async function resolvePluginSource(
 	};
 }
 
-async function writeTargetBundle(
-	options: WriteBundleOptions,
-): Promise<string[]> {
-	const outDir = resolve(options.outDir);
-	const writtenFiles: string[] = [];
-
-	if ((await pathExists(outDir)) && !options.overwrite) {
-		throw new InstallAgentPluginError(
-			`Output directory already exists: ${outDir}. Pass --overwrite to replace it.`,
-		);
-	}
-
-	assertSafeOutputDirectory(outDir);
-	await rm(outDir, { recursive: true, force: true });
-	await mkdir(outDir, { recursive: true });
-
-	for (const file of options.bundle.files) {
-		const filePath = resolveRenderedFilePath(outDir, file);
-		await mkdir(dirname(filePath), { recursive: true });
-		await writeRenderedFile(filePath, file);
-		writtenFiles.push(filePath);
-	}
-
-	return writtenFiles;
-}
-
-function resolveRenderedFilePath(outDir: string, file: RenderedFile): string {
-	const segments = file.path.split("/").filter(Boolean);
-
-	if (
-		file.path.includes("\0") ||
-		file.path.startsWith("/") ||
-		segments.some((segment) => segment === "." || segment === "..")
-	) {
-		throw new InstallAgentPluginError(
-			`Refusing to write unsafe bundle path: ${file.path}`,
-		);
-	}
-
-	const filePath = resolve(outDir, ...segments);
-
-	if (!isPathInside(outDir, filePath)) {
-		throw new InstallAgentPluginError(
-			`Refusing to write outside output directory: ${file.path}`,
-		);
-	}
-
-	return filePath;
-}
-
-async function writeRenderedFile(
-	filePath: string,
-	file: RenderedFile,
-): Promise<void> {
-	if (file.mode === undefined) {
-		await writeFile(filePath, file.content);
-		return;
-	}
-
-	await writeFile(filePath, file.content, { mode: file.mode });
-}
-
-function assertSafeOutputDirectory(outDir: string): void {
-	const rootDirectory = parse(outDir).root;
-
-	if (outDir === rootDirectory) {
-		throw new InstallAgentPluginError(
-			"Refusing to use filesystem root as an install output directory.",
-		);
-	}
-}
-
 function matchesPluginSelector(
 	declaration: DiscoveredPluginDeclaration,
 	selector: string,
@@ -518,13 +452,13 @@ function printResult(result: InstallAgentPluginResult): void {
 
 	if (result.kind === "dry-run") {
 		console.log(
-			`Selected ${displayDeclaration(result.declaration)} for ${result.target}.`,
+			`Selected ${displayDeclaration(result.declaration)} for ${result.target} (${result.scope} scope).`,
 		);
 		return;
 	}
 
 	console.log(
-		`Materialized ${displayDeclaration(result.declaration)} for ${result.target} -> ${displayPath(result.outDir)} (${result.files.length} files, ${result.report.status})`,
+		`${result.explicitOutDir ? "Materialized" : "Installed"} ${displayDeclaration(result.declaration)} for ${result.target} (${result.scope} scope) -> ${displayPath(result.outDir)} (${result.files.length} files, ${result.report.status})`,
 	);
 
 	for (const issue of result.report.issues) {
@@ -564,27 +498,6 @@ function displayDeclaration(declaration: DiscoveredPluginDeclaration): string {
 		declaration.exportName ??
 		declaration.relativePath
 	);
-}
-
-function defaultOutputDir(
-	declaration: DiscoveredPluginDeclaration,
-	target: string,
-): string {
-	return join(
-		"dist",
-		"install-agent-plugin",
-		target,
-		slugify(displayDeclaration(declaration)),
-	);
-}
-
-function slugify(value: string): string {
-	const slug = value
-		.toLowerCase()
-		.replace(/[^a-z0-9._-]+/g, "-")
-		.replace(/^-+|-+$/g, "");
-
-	return slug || "plugin";
 }
 
 function printHelp(): void {
@@ -658,15 +571,6 @@ async function mktempRepositoryDirectory(): Promise<string> {
 	return await mkdtemp(join(tmpdir(), "oiap-install-"));
 }
 
-function isPathInside(parentPath: string, childPath: string): boolean {
-	const relativePath = relative(parentPath, childPath);
-
-	return (
-		relativePath === "" ||
-		(!relativePath.startsWith("..") && !isAbsolute(relativePath))
-	);
-}
-
 function displayPath(path: string): string {
 	const relativePath = relative(process.cwd(), path);
 
@@ -689,19 +593,21 @@ function isCliEntrypoint(): boolean {
 
 const helpText = `Usage:
   install-agent-plugin <owner/repo|path> --list [--ref <ref>] [--json]
-	install-agent-plugin <owner/repo|path> --plugin <name> --agent <target> [--out <dir>] [--ref <ref>] [--overwrite] [--json]
+	install-agent-plugin <owner/repo|path> --plugin <name> --agent <target> [-g] [--out <dir>] [--ref <ref>] [--overwrite] [--json]
 
 Options:
   -l, --list              List OIAP definePlugin declarations without loading them.
   -p, --plugin <name>     Plugin manifest id/name, export name, or path#export selector.
   -a, --agent <target>    Target agent exporter. Alias: --target.
-	-o, --out <dir>         Directory where the selected target bundle is written. Defaults to dist/install-agent-plugin/<agent>/<plugin>.
+	-g, --global            Install to the target's user-level path. Defaults to the local/project path.
+	--local, --project      Install to the target's local/project path.
+	-o, --out <dir>         Override the target install path and write the selected bundle to a directory.
   --ref <ref>             Git branch or tag for owner/repo sources.
   --dry-run               Resolve source, plugin, and agent without loading or writing.
-  --overwrite             Replace an existing --out directory.
+	--overwrite             Replace an existing install or --out directory.
   --json                  Print machine-readable output.
 
-Host install paths are not guessed yet; bundles are materialized under --out until target profiles define installation destinations.
+By default, plugins install to the selected target's local/project directory. Use --global for user-level installation or --out for a reviewable bundle directory.
 `;
 
 if (isCliEntrypoint()) {

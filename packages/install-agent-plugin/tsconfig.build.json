@@ -6,7 +6,6 @@
 		"noEmit": false,
 		"outDir": "dist",
 		"paths": {
-			"@oiap/cli": ["../cli/dist/index.d.ts"],
 			"@oiap/core": ["../core/dist/index.d.ts"]
 		},
 		"rootDir": "src",

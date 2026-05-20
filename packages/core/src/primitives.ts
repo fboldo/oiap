@@ -457,6 +457,7 @@ export interface HostProfile {
 	id: TargetId;
 	verification: "official" | "profile-derived" | "thin";
 	packageSupport?: PackageSupport;
+	installSupport?: InstallSupport;
 	skillSupport?: SkillSupport;
 	commandSupport?: CommandSupport;
 	ruleSupport?: RuleSupport;
@@ -476,10 +477,23 @@ export type ConfigFormat =
 	| "python"
 	| "javascript";
 
+export type InstallScope = "local" | "global";
+
+export type InstallPathBase = "cwd" | "home" | "xdg-config-home";
+
+export interface InstallPathTemplate {
+	base: InstallPathBase;
+	segments: string[];
+}
+
 export interface SurfaceSupport {
 	supported: boolean;
 	fidelity: "native" | "partial" | "fallback" | "unsupported";
 	notes?: string;
+}
+
+export interface InstallSupport extends SurfaceSupport {
+	paths: Partial<Record<InstallScope, InstallPathTemplate>>;
 }
 
 export type PackageSupport = SurfaceSupport;
