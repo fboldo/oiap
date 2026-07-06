@@ -99,6 +99,42 @@ describe("OpenCode hook plugin runtime", () => {
 		expect(output.result).toBe("after");
 	});
 
+	test("serializes tool arguments without circular placeholders", () => {
+		const payload = createPayload(
+			{ directory: "/repo", worktree: "/repo" },
+			"tool.execute.before",
+			{ tool: "bash" },
+			{ args: { command: "rm -rf /tmp/hookify-proof" } },
+		);
+		const serialized = safeJson(payload);
+
+		expect(serialized).not.toContain('"args":"[Circular]"');
+		expect(JSON.parse(serialized).args).toEqual({
+			command: "rm -rf /tmp/hookify-proof",
+		});
+	});
+
+	test("surfaces allow annotations on OpenCode hook output", () => {
+		const output: Record<string, unknown> = {
+			args: { command: "pip install pytest" },
+			output: "",
+		};
+
+		applyHookResult(
+			{
+				decision: "allow",
+				annotations: [{ key: "hookify.warning", value: "Use uv instead" }],
+			},
+			output,
+		);
+
+		expect(output).toEqual({
+			args: { command: "pip install pytest" },
+			output: "",
+			annotations: [{ key: "hookify.warning", value: "Use uv instead" }],
+		});
+	});
+
 	test("serializes circular payloads safely", () => {
 		const payload: Record<string, unknown> = { name: "payload" };
 		payload.self = payload;

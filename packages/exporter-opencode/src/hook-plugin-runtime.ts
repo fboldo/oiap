@@ -144,7 +144,7 @@ export function createPayload(
 		return {
 			...base,
 			tool: inputRecord.tool ?? inputRecord.name,
-			args: outputRecord.args ?? inputRecord.args,
+			args: cloneJsonValue(outputRecord.args ?? inputRecord.args),
 			result: outputRecord.result ?? outputRecord.output,
 			error: outputRecord.error,
 		};
@@ -286,7 +286,13 @@ export function parseRuntimeResult(stdout: string): HookResult | undefined {
 }
 
 export function applyHookResult(result: HookResult, output?: unknown): void {
-	if (!result || result.decision === "allow" || result.decision === "noop") {
+	if (!result) {
+		return;
+	}
+
+	applyAnnotations(result, output);
+
+	if (result.decision === "allow" || result.decision === "noop") {
 		return;
 	}
 
@@ -309,6 +315,20 @@ export function applyHookResult(result: HookResult, output?: unknown): void {
 	}
 }
 
+function applyAnnotations(result: HookResult, output?: unknown): void {
+	const annotations = result.annotations;
+
+	if (!Array.isArray(annotations) || !output || typeof output !== "object") {
+		return;
+	}
+
+	const outputRecord = output as UnknownRecord;
+	const previousAnnotations = Array.isArray(outputRecord.annotations)
+		? outputRecord.annotations
+		: [];
+	outputRecord.annotations = [...previousAnnotations, ...annotations];
+}
+
 export function safeJson(value: unknown): string {
 	const seen = new WeakSet<object>();
 
@@ -329,6 +349,10 @@ export function safeJson(value: unknown): string {
 			return nestedValue;
 		}) ?? "{}"
 	);
+}
+
+function cloneJsonValue(value: unknown): unknown {
+	return JSON.parse(safeJson(value)) as unknown;
 }
 
 function eventTypeFromPayload(payload: unknown): string | undefined {
