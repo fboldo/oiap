@@ -1,3 +1,5 @@
+
+
 # OIAP - Open Interoperable Agent Plugins
 
 
@@ -81,6 +83,8 @@ Build the same plugin for every registered exporter:
 ```sh
 npx oiap build oiap.plugin.ts --out dist/oiap
 ```
+
+This creates one subdirectory per registered target under `dist/oiap`.
 
 ## Agent Skill
 
