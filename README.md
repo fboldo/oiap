@@ -1,5 +1,7 @@
 # OIAP - Open Interoperable Agent Plugins
 
+**Documentation: [fboldo.github.io/oiap](https://fboldo.github.io/oiap/)**
+([llms.txt](https://fboldo.github.io/oiap/llms.txt))
 
 <p>
 	<strong>Write your AI agent plugin in TypeScript once and convert to:</strong>
@@ -429,6 +431,23 @@ bun run test:coverage
 Turbo orchestrates build, typecheck, and test tasks across packages. Lerna is
 reserved for fixed-version release management. The Husky pre-commit hook runs
 `bun run precommit` automatically before commits.
+
+### Documentation site
+
+The site in [`docs/`](docs) is an Astro Starlight project with its own
+`package.json`, outside the Bun workspaces. Run it locally:
+
+```sh
+cd docs && bun install && bun run dev
+```
+
+`bun run build` writes the static site, `llms.txt`, `llms-full.txt` and
+`llms-small.txt` to `docs/dist/`. Target, example, package, matrix, and
+architecture pages are generated from this repository's Markdown by
+`docs/scripts/sync-content.ts`, so edit `MATRIX.md`, `ARCHITECTURE.md`, and the
+package and example READMEs rather than the generated pages. The
+`.github/workflows/docs.yml` workflow builds the site on pull requests and
+deploys it to GitHub Pages from `main`.
 
 ## Release Management
 

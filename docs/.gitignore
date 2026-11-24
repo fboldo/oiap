@@ -1,0 +1,11 @@
+# Pages generated from repository Markdown by scripts/sync-content.ts
+# (keep in sync with GENERATED in that script)
+src/content/docs/targets/
+src/content/docs/examples/
+src/content/docs/reference/packages/
+src/content/docs/reference/architecture.md
+
+# Astro
+.astro/
+dist/
+node_modules/

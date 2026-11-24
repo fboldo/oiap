@@ -1,0 +1,65 @@
+---
+title: OIAP
+description: Write your agent plugin once in TypeScript and export host-native bundles for eleven agent hosts.
+template: splash
+hero:
+  tagline: Write your agent plugin once in TypeScript. Export host-native bundles for Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, Antigravity, OpenClaw, OpenCode, Cline and Windsurf.
+  actions:
+    - text: Quick start
+      link: /oiap/start/quick-start/
+      icon: right-arrow
+    - text: What is OIAP?
+      link: /oiap/start/what-is-oiap/
+      variant: minimal
+    - text: View on GitHub
+      link: https://github.com/fboldo/oiap
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+```sh
+npm install --save-dev @oiap/cli @oiap/core
+npx oiap build oiap.plugin.ts --out dist/oiap
+```
+
+## Targets
+
+One `oiap.plugin.ts` builds for every registered exporter. Each target page lists what the exporter writes and where it degrades.
+
+<CardGrid>
+	<LinkCard title="Claude Code" description="claude-code" href="/oiap/targets/claude-code/" />
+	<LinkCard title="Codex" description="codex" href="/oiap/targets/codex/" />
+	<LinkCard title="Cursor" description="cursor" href="/oiap/targets/cursor/" />
+	<LinkCard title="Gemini CLI" description="gemini-cli" href="/oiap/targets/gemini-cli/" />
+	<LinkCard title="GitHub Copilot CLI" description="github-copilot-cli" href="/oiap/targets/github-copilot-cli/" />
+	<LinkCard title="VS Code Copilot Chat" description="vscode-copilot-chat" href="/oiap/targets/vscode-copilot-chat/" />
+	<LinkCard title="Google Antigravity" description="antigravity" href="/oiap/targets/antigravity/" />
+	<LinkCard title="OpenClaw" description="openclaw" href="/oiap/targets/openclaw/" />
+	<LinkCard title="OpenCode" description="opencode" href="/oiap/targets/opencode/" />
+	<LinkCard title="Cline" description="cline" href="/oiap/targets/cline/" />
+	<LinkCard title="Windsurf (Devin Desktop)" description="windsurf" href="/oiap/targets/windsurf/" />
+	<LinkCard title="Support matrix" description="Every surface, every host" href="/oiap/targets/matrix/" />
+</CardGrid>
+
+## Two ways to ship
+
+<CardGrid>
+	<Card title="Commit host files with oiap sync" icon="github">
+		Run `oiap sync`, commit the generated files, and let the OIAP GitHub Action fail pull requests that are out of date. Users install with each host's own command, such as `claude plugin marketplace add owner/repo`.
+
+		[Ship with oiap sync](/oiap/guides/oiap-sync/)
+	</Card>
+	<Card title="Build at install time" icon="rocket">
+		Users run `npx install-agent-plugin owner/repo --plugin <id> --agent <target>`, which builds the bundle from your source on their machine. Or wrap `installPlugin()` in your own CLI.
+
+		[Use install-agent-plugin](/oiap/guides/install-agent-plugin/)
+	</Card>
+</CardGrid>
+
+Most plugins use both. See [Two ways to ship a plugin](/oiap/start/two-ways-to-ship/).
+
+:::note
+OIAP is early and actively evolving. Every build writes a [capability report](/oiap/guides/capability-reports/) that says what mapped natively, what degraded and what is unsupported for each target.
+:::
