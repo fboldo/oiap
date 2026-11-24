@@ -119,19 +119,15 @@ failure mode, and returns the result, which the generated adapter maps to the
 host's native response. Users need Node on their machine; they do not need to
 install `@oiap/runtime`.
 
-### Keep handlers self-contained
+### Hook code and dependencies
 
-How `hooks.mjs` is produced depends on how the plugin is built:
-
-- **`oiap build` and `oiap sync`** copy each handler's source text into
-  `hooks.mjs`. The handler must be an arrow function or function expression,
-  and it must not use imports or module-level values: return plain result
-  objects such as `{ decision: "allow" }` rather than helpers like `allow()`.
-  Handlers that cannot be serialized are reported as degraded.
-- **`install-agent-plugin`** bundles hook handlers from the original plugin
-  source, so hook code can use normal imports, top-level constants and local
-  helpers. Declare runtime hook dependencies in the plugin package's
-  `dependencies` or `optionalDependencies`.
+`oiap build`, `oiap sync` and `install-agent-plugin` all bundle hook handlers
+from the original plugin source into `hooks.mjs`, so hook code can use normal
+imports, top-level constants, local helpers and result helpers such as
+`allow()` and `block()`. Write handlers inline in the plugin's `hooks` array as
+arrow functions or function expressions. Declare runtime hook dependencies in
+the plugin package's `dependencies` or `optionalDependencies`, so they are
+installed before the plugin is built.
 
 ## Target modules
 
