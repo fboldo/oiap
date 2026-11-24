@@ -222,8 +222,11 @@ bunx @oiap/cli sync --check    # CI: exit 1 if the committed files are out of da
 installs from git (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI,
 VS Code Copilot, OpenClaw, Antigravity):
 
-- Hosts that only install the repository root (Gemini CLI, Antigravity) go at
-  the root and share files such as `skills/` when their copies match.
+- Hosts that only install the repository root (Gemini CLI, Antigravity, and
+  the Agent Plugins `plugin.json`) go at the root and share files such as
+  `skills/` when their copies match. When the `agent-plugins` target is on,
+  GitHub Copilot CLI and VS Code read its root `plugin.json`, so it serves them
+  and sync writes no separate Copilot plugin.
 - Other hosts share the root when no host would load another host's files and
   none of their files would overwrite one you wrote, and move to
   `plugins/<target>/` otherwise. `--layout plugins` always uses

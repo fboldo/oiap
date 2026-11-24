@@ -218,6 +218,45 @@ describe("planSync catalogs", () => {
 	});
 });
 
+describe("planSync with Agent Plugins", () => {
+	test("keeps Codex at the root and serves Copilot through the root manifest", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"agent-plugins",
+					bundle("agent-plugins", {
+						"plugin.json":
+							'{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}',
+						"skills/a/SKILL.md": "A",
+					}),
+				],
+				[
+					"codex",
+					bundle("codex", {
+						".codex-plugin/plugin.json": "{}",
+						"skills/a/SKILL.md": "A",
+					}),
+				],
+			]),
+			"root",
+		);
+		const copilotCatalog = JSON.parse(
+			String(
+				plan.files.find(
+					(file) => file.path === ".github/plugin/marketplace.json",
+				)?.content,
+			),
+		);
+
+		expect(plan.placements.map((placement) => placement.directory)).toEqual([
+			"",
+			"",
+		]);
+		expect(copilotCatalog.plugins[0].source).toBe("./");
+	});
+});
+
 describe("planSync with author files", () => {
 	test("moves a host whose root files would overwrite the author's", () => {
 		const plan = planSync(

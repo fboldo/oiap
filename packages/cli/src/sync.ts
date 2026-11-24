@@ -51,11 +51,12 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		],
 	},
 	// https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.0.0.md
-	// The open manifest at the root; Copilot CLI, VS Code and Codex prefer it
-	// over their own manifest, so they move aside when it is present.
+	// The open manifest at the root. Copilot CLI and VS Code read it in place
+	// of their own manifest, so it also serves them through the Copilot catalog.
 	"agent-plugins": {
 		rootOnly: true,
 		reads: ["plugin.json", "skills/", "mcp.json"],
+		marketplace: "copilot",
 	},
 	// https://antigravity.google/docs/build-plugins.md
 	// Its .antigravity-plugin/plugin.json wins over a root plugin.json.
@@ -92,11 +93,11 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		marketplace: "claude",
 	},
 	// https://developers.openai.com/codex/plugins/build
-	// A root Agent Plugins plugin.json wins over .codex-plugin/plugin.json.
+	// Codex reads a root plugin.json only with the Agent Plugins $schema, and
+	// layers .codex-plugin/plugin.json over it, so the two share the root.
 	codex: {
 		rootOnly: false,
 		reads: [
-			"plugin.json",
 			".codex-plugin/plugin.json",
 			"skills/",
 			"hooks/hooks.json",
@@ -167,7 +168,8 @@ export const syncTargets = [...SYNC_TARGET_ORDER];
 
 /**
  * Bundle files that describe a build and do not belong in a plugin repository;
- * per-hook evidence under `.oiap/hooks/` is left out too.
+ * per-hook evidence under `.oiap/hooks/` and permission fragments no host reads
+ * (`.oiap/<target>-permissions.json`) are left out too.
  */
 const BUNDLE_ONLY_FILES = new Set([
 	"README.md",
@@ -235,6 +237,14 @@ export function planSync(
 ): SyncPlan {
 	const manifest = getManifest(plugin);
 	const placed = new Map<string, PlacedFile>();
+	declaredReads.clear();
+	const cursorBundle = bundles.get("cursor");
+	const cursorPaths = cursorBundle
+		? cursorReads(cursorBundle.files)
+		: undefined;
+	if (cursorPaths) {
+		declaredReads.set("cursor", cursorPaths);
+	}
 	const rootTargets: string[] = [];
 	const placements: SyncPlacement[] = [];
 	const notes: string[] = [];
@@ -251,7 +261,8 @@ export function planSync(
 		const files = bundle.files.filter(
 			(file) =>
 				!BUNDLE_ONLY_FILES.has(file.path) &&
-				!file.path.startsWith(".oiap/hooks/"),
+				!file.path.startsWith(".oiap/hooks/") &&
+				!/^\.oiap\/[^/]+-permissions\.json$/.test(file.path),
 		);
 		let directory = "";
 
@@ -450,9 +461,56 @@ function foreignReads(
 }
 
 function reads(target: string, path: string): boolean {
-	return (SYNC_TARGET_RULES[target]?.reads ?? []).some((entry) =>
+	return (
+		declaredReads.get(target) ??
+		SYNC_TARGET_RULES[target]?.reads ??
+		[]
+	).some((entry) =>
 		entry.endsWith("/") ? path.startsWith(entry) : path === entry,
 	);
+}
+
+/**
+ * Cursor's manifest paths replace its default component locations
+ * (https://cursor.com/docs/reference/plugins), so what it reads depends on the
+ * manifest it was given. Filled in by planSync from each bundle.
+ */
+const declaredReads = new Map<string, string[]>();
+
+const CURSOR_COMPONENTS: Record<string, string> = {
+	skills: "skills/",
+	agents: "agents/",
+	commands: "commands/",
+	rules: "rules/",
+	hooks: "hooks/hooks.json",
+	mcpServers: "mcp.json",
+};
+
+function cursorReads(files: RenderedFile[]): string[] | undefined {
+	const manifestFile = files.find(
+		(file) => file.path === ".cursor-plugin/plugin.json",
+	);
+
+	if (!manifestFile) {
+		return undefined;
+	}
+
+	const manifest = JSON.parse(String(manifestFile.content)) as Record<
+		string,
+		unknown
+	>;
+
+	return [
+		".cursor-plugin/plugin.json",
+		...Object.entries(CURSOR_COMPONENTS).map(([key, fallback]) => {
+			const declared = manifest[key];
+			if (typeof declared !== "string") {
+				return fallback;
+			}
+			const path = declared.replace(/^\.\//, "");
+			return fallback.endsWith("/") && !path.endsWith("/") ? `${path}/` : path;
+		}),
+	];
 }
 
 function renderMarketplaces(
@@ -628,9 +686,19 @@ export async function syncPluginFile(
 	const servesVsCode =
 		selected.includes("github-copilot-cli") &&
 		selected.includes("vscode-copilot-chat");
-	const targets = servesVsCode
-		? selected.filter((target) => target !== "vscode-copilot-chat")
-		: selected;
+	// A root Agent Plugins manifest is what Copilot CLI and VS Code read first,
+	// so it serves them both.
+	const servedByAgentPlugins: string[] = selected.includes("agent-plugins")
+		? selected.filter(
+				(target) =>
+					target === "github-copilot-cli" || target === "vscode-copilot-chat",
+			)
+		: [];
+	const targets = selected.filter(
+		(target) =>
+			!servedByAgentPlugins.includes(target) &&
+			!(servesVsCode && target === "vscode-copilot-chat"),
+	);
 	const bundles = new Map<string, TargetBundle>();
 
 	for (const target of targets) {
@@ -659,7 +727,11 @@ export async function syncPluginFile(
 		await authorFiles(repoDir, bundles, previous),
 	);
 
-	if (servesVsCode) {
+	if (servedByAgentPlugins.length > 0) {
+		plan.notes.push(
+			`${servedByAgentPlugins.join(" and ")} ${servedByAgentPlugins.length === 1 ? "reads" : "read"} the root Agent Plugins plugin.json, so the agent-plugins target serves ${servedByAgentPlugins.length === 1 ? "it" : "them"}; ship Copilot-only agents or hooks with targetFiles["agent-plugins"] under com.github.copilot/.`,
+		);
+	} else if (servesVsCode) {
 		plan.notes.push(
 			"vscode-copilot-chat is served by the github-copilot-cli plugin: VS Code reads the same .github/plugin/marketplace.json and discovers plugins installed with Copilot CLI.",
 		);
