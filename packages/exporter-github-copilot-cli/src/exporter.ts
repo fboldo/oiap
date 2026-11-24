@@ -36,7 +36,10 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { GITHUB_COPILOT_CLI_TARGET, gitHubCopilotCliProfile } from "./profile";
+import {
+	GITHUB_COPILOT_CLI_TARGET,
+	gitHubCopilotCliProfile,
+} from "./profile.ts";
 
 export type GitHubCopilotCliPluginInput = PluginDefinition | PluginIr;
 

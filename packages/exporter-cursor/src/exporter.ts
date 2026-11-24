@@ -36,7 +36,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { CURSOR_TARGET, cursorProfile } from "./profile";
+import { CURSOR_TARGET, cursorProfile } from "./profile.ts";
 
 export type CursorPluginInput = PluginDefinition | PluginIr;
 

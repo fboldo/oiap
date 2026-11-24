@@ -8,7 +8,7 @@ import type {
 	SourceRef,
 	TargetId,
 	ValidationIssue,
-} from "./primitives";
+} from "./primitives.ts";
 
 /** Expands to the directory holding the plugin's `resources`. */
 export const PLUGIN_ROOT_TOKEN = "$" + "{OIAP_PLUGIN_ROOT}";

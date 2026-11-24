@@ -15,9 +15,9 @@ import type {
 	TargetBundle,
 	ValidationIssue,
 } from "@oiap/core";
-import { bundleHooksFromSource, loadPluginFile } from "./build";
-import type { CliPluginInput } from "./registry";
-import { getRegisteredExporter } from "./registry";
+import { bundleHooksFromSource, loadPluginFile } from "./build.ts";
+import type { CliPluginInput } from "./registry.ts";
+import { getRegisteredExporter } from "./registry.ts";
 
 /**
  * Where each git-installed host looks for plugin files, from its docs:
@@ -63,8 +63,10 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		],
 	},
 	// https://github.com/openclaw/openclaw/blob/main/docs/cli/plugins/install.md
+	// `git:` installs read the root, but a checkout or package can point at a
+	// subdirectory, so OpenClaw moves when the root already has a package.json.
 	openclaw: {
-		rootOnly: true,
+		rootOnly: false,
 		reads: ["openclaw.plugin.json", "package.json", "skills/"],
 	},
 	// https://code.claude.com/docs/en/plugins-reference: skills, hooks and MCP
@@ -210,6 +212,8 @@ export function planSync(
 	plugin: CliPluginInput,
 	bundles: Map<string, TargetBundle>,
 	layout: SyncLayout,
+	/** Repository files the author wrote, which no target may overwrite. */
+	reserved: ReadonlySet<string> = new Set(),
 ): SyncPlan {
 	const manifest = getManifest(plugin);
 	const placed = new Map<string, PlacedFile>();
@@ -265,6 +269,7 @@ export function planSync(
 			);
 		} else if (
 			layout === "plugins" ||
+			files.some((file) => reserved.has(file.path)) ||
 			pathConflicts(files, placed).length > 0 ||
 			foreignReads(target, files, placed, rootTargets).length > 0
 		) {
@@ -572,7 +577,14 @@ export async function syncPluginFile(
 		);
 	}
 
-	const plan = planSync(plugin, bundles, options.layout);
+	const repoDir = resolve(options.repoDir);
+	const previous = await readLock(repoDir);
+	const plan = planSync(
+		plugin,
+		bundles,
+		options.layout,
+		await authorFiles(repoDir, bundles, previous),
+	);
 
 	if (servesVsCode) {
 		plan.notes.push(
@@ -586,8 +598,6 @@ export async function syncPluginFile(
 		);
 	}
 
-	const repoDir = resolve(options.repoDir);
-	const previous = await readLock(repoDir);
 	const differences = await diffRepository(repoDir, plan.files, previous);
 	const result: SyncResult = { plan, differences, written: [], removed: [] };
 
@@ -638,6 +648,36 @@ export async function syncPluginFile(
 	}
 
 	return result;
+}
+
+/**
+ * Root paths that some target would write but that already exist in the
+ * repository without a previous sync having written them: the author's files.
+ */
+async function authorFiles(
+	repoDir: string,
+	bundles: Map<string, TargetBundle>,
+	previous: SyncLock | undefined,
+): Promise<Set<string>> {
+	const generated = new Set(Object.keys(previous?.files ?? {}));
+	const candidates = new Set(
+		[...bundles.values()].flatMap((bundle) =>
+			bundle.files.map((file) => file.path),
+		),
+	);
+	const reserved = new Set<string>();
+
+	for (const path of candidates) {
+		if (
+			!generated.has(path) &&
+			!BUNDLE_ONLY_FILES.has(path) &&
+			existsSync(resolveRepoPath(repoDir, path))
+		) {
+			reserved.add(path);
+		}
+	}
+
+	return reserved;
 }
 
 export function selectSyncTargets(

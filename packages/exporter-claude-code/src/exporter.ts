@@ -35,7 +35,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { CLAUDE_CODE_TARGET, claudeCodeProfile } from "./profile";
+import { CLAUDE_CODE_TARGET, claudeCodeProfile } from "./profile.ts";
 
 export type ClaudeCodePluginInput = PluginDefinition | PluginIr;
 

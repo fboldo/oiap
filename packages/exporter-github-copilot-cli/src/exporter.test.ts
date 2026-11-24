@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportGitHubCopilotCli } from "./exporter";
+import { exportGitHubCopilotCli } from "./exporter.ts";
 
 const target = "github-copilot-cli";
 

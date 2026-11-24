@@ -37,7 +37,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { GEMINI_CLI_TARGET, geminiCliProfile } from "./profile";
+import { GEMINI_CLI_TARGET, geminiCliProfile } from "./profile.ts";
 
 export type GeminiCliPluginInput = PluginDefinition | PluginIr;
 

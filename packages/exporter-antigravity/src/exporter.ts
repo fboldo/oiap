@@ -40,7 +40,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { ANTIGRAVITY_TARGET, antigravityProfile } from "./profile";
+import { ANTIGRAVITY_TARGET, antigravityProfile } from "./profile.ts";
 
 export type AntigravityPluginInput = PluginDefinition | PluginIr;
 

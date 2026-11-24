@@ -20,7 +20,8 @@
 			]
 		},
 		"rootDir": "src",
-		"sourceMap": true
+		"sourceMap": true,
+		"rewriteRelativeImportExtensions": true
 	},
 	"exclude": ["dist", "**/*.test.ts"]
 }

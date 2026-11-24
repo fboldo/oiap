@@ -1,4 +1,4 @@
-import type { JsonObject } from "./primitives";
+import type { JsonObject } from "./primitives.ts";
 
 export interface NetworkCapability {
 	kind: "network";

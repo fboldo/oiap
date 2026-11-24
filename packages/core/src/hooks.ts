@@ -1,6 +1,6 @@
-import type { HookCapabilities } from "./capabilities";
-import type { JsonObject, JsonValue, TargetId } from "./primitives";
-import type { HookResult } from "./results";
+import type { HookCapabilities } from "./capabilities.ts";
+import type { JsonObject, JsonValue, TargetId } from "./primitives.ts";
+import type { HookResult } from "./results.ts";
 
 export type Awaitable<TValue> = TValue | Promise<TValue>;
 

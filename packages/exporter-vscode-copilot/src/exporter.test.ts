@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportVsCodeCopilot } from "./exporter";
+import { exportVsCodeCopilot } from "./exporter.ts";
 
 const target = "vscode-copilot-chat";
 

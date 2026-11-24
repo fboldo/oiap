@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportGeminiCli } from "./exporter";
+import { exportGeminiCli } from "./exporter.ts";
 
 describe("exportGeminiCli", () => {
 	test("renders a Gemini CLI extension bundle", () => {

@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportOpenCode } from "./exporter";
+import { exportOpenCode } from "./exporter.ts";
 
 describe("exportOpenCode", () => {
 	test("renders an OpenCode project bundle", () => {

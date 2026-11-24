@@ -1,4 +1,4 @@
-import type { HookDefinition } from "./hooks";
+import type { HookDefinition } from "./hooks.ts";
 
 export type JsonPrimitive = string | number | boolean | null;
 
@@ -77,8 +77,14 @@ export interface PluginManifest {
 	name: string;
 	version: string;
 	description: string;
+	/** Human-readable name for hosts that show one separately from `name`. */
+	displayName?: string;
 	homepage?: string;
 	license?: string;
+	/** Search keywords; hosts without a keywords field ignore them. */
+	keywords?: string[];
+	/** Path of the plugin logo, a file in plugin `resources` (SVG or PNG). */
+	logo?: string;
 	/** Publisher, used for marketplace owners and manifest authors. */
 	author?: PluginAuthor;
 	/** Source repository URL. */
@@ -227,6 +233,10 @@ export interface SkillAsset {
 	assets?: PackageAssetRef[];
 	/** Files shipped beside SKILL.md; paths are relative to the skill directory. */
 	files?: PluginFile[];
+	/** false: only the user can run the skill (host `disable-model-invocation`). */
+	modelInvocable?: boolean;
+	/** false: hidden from the user's slash commands; only the model loads it. */
+	userInvocable?: boolean;
 	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 }
 
@@ -274,6 +284,12 @@ export interface AgentDefinition {
 	/** Host tool names, passed through as-is. Prefer `access` for portability. */
 	tools?: ToolRef[];
 	access?: AgentAccess;
+	/**
+	 * "exclude" starts the agent without the host's project and user
+	 * instruction files (CLAUDE.md, AGENTS.md, custom instructions) where the
+	 * host has a control for it; otherwise exporters report a degradation.
+	 */
+	hostInstructions?: "include" | "exclude";
 	model?: string;
 	delegation?: DelegationStrategyRef;
 	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;

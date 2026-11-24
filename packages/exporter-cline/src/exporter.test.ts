@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportCline } from "./exporter";
+import { exportCline } from "./exporter.ts";
 
 const target = "cline";
 

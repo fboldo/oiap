@@ -36,7 +36,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { VSCODE_COPILOT_TARGET, vsCodeCopilotProfile } from "./profile";
+import { VSCODE_COPILOT_TARGET, vsCodeCopilotProfile } from "./profile.ts";
 
 export type VsCodeCopilotPluginInput = PluginDefinition | PluginIr;
 

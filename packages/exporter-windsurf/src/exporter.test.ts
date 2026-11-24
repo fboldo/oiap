@@ -2,8 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportWindsurf } from "./exporter";
-import { windsurfProfile } from "./profile";
+import { exportWindsurf } from "./exporter.ts";
+import { windsurfProfile } from "./profile.ts";
 
 const target = "windsurf";
 

@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import { markdownFile } from "./authoring";
+import { markdownFile } from "./authoring.ts";
 
 describe("markdownFile", () => {
 	test("reads markdown relative to the calling module", () => {

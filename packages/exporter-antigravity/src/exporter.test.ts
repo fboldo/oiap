@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportAntigravity } from "./exporter";
+import { exportAntigravity } from "./exporter.ts";
 
 const target = "antigravity";
 

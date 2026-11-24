@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { discoverPluginDeclarations } from "./discovery";
+import { discoverPluginDeclarations } from "./discovery.ts";
 
 describe("discoverPluginDeclarations", () => {
 	test("discovers default definePlugin exports and static manifest metadata", async () => {

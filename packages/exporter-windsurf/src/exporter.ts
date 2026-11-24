@@ -34,7 +34,7 @@ import {
 	unresolvedTokenIssues,
 } from "@oiap/core";
 import { renderHookRuntimeFiles, unsupportedHookIds } from "@oiap/runtime";
-import { WINDSURF_TARGET, windsurfProfile } from "./profile";
+import { WINDSURF_TARGET, windsurfProfile } from "./profile.ts";
 
 export type WindsurfPluginInput = PluginDefinition | PluginIr;
 

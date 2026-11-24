@@ -17,7 +17,7 @@ import {
 	SYNC_LOCK_PATH,
 	selectSyncTargets,
 	syncPluginFile,
-} from "./sync";
+} from "./sync.ts";
 
 const manifest = {
 	id: "sample",
@@ -145,10 +145,10 @@ describe("planSync", () => {
 					}),
 				],
 				[
-					"openclaw",
-					bundle("openclaw", {
-						"skills/a/SKILL.md": "openclaw",
-						".oiap/runtime/manifest.json": "openclaw",
+					"antigravity",
+					bundle("antigravity", {
+						"skills/a/SKILL.md": "antigravity",
+						".oiap/runtime/manifest.json": "antigravity",
 					}),
 				],
 			]),
@@ -156,10 +156,34 @@ describe("planSync", () => {
 		);
 
 		expect(plan.notes).toContain(
-			"openclaw uses the gemini-cli copy of 1 file(s) in skills/",
+			"antigravity uses the gemini-cli copy of 1 file(s) in skills/",
 		);
 		expect(plan.errors).toHaveLength(1);
 		expect(plan.errors[0]).toContain(".oiap/runtime/manifest.json");
+	});
+});
+
+describe("planSync with author files", () => {
+	test("moves a host whose root files would overwrite the author's", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"openclaw",
+					bundle("openclaw", {
+						"openclaw.plugin.json": "{}",
+						"package.json": "{}",
+					}),
+				],
+			]),
+			"root",
+			new Set(["package.json"]),
+		);
+
+		expect(plan.placements[0]?.directory).toBe("plugins/openclaw");
+		expect(plan.files.map((file) => file.path)).toContain(
+			"plugins/openclaw/package.json",
+		);
 	});
 });
 
@@ -231,15 +255,18 @@ describe("syncPluginFile", () => {
 
 		mkdirSync(join(repo, ".claude-plugin"), { recursive: true });
 		writeFileSync(join(repo, ".claude-plugin", "plugin.json"), "{}\n");
-		await expect(syncPluginFile({ ...options, check: false })).rejects.toThrow(
-			"previous sync did not write: .claude-plugin/plugin.json (claude-code)",
-		);
+		const moved = await syncPluginFile({ ...options, check: false });
+		expect(
+			moved.plan.placements.find(
+				(placement) => placement.target === "claude-code",
+			)?.directory,
+		).toBe("plugins/claude-code");
+		expect(
+			readFileSync(join(repo, ".claude-plugin", "plugin.json"), "utf8"),
+		).toBe("{}\n");
+		rmSync(join(repo, ".claude-plugin", "plugin.json"));
 
-		const written = await syncPluginFile({
-			...options,
-			check: false,
-			force: true,
-		});
+		const written = await syncPluginFile({ ...options, check: false });
 		expect(written.written).toContain(".claude-plugin/plugin.json");
 		expect(existsSync(join(repo, "skills", "review", "SKILL.md"))).toBe(true);
 

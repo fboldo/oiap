@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportCursor } from "./exporter";
+import { exportCursor } from "./exporter.ts";
 
 const target = "cursor";
 

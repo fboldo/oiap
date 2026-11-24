@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HookDefinition, TargetModuleRef } from "./hooks";
+import type { HookDefinition, TargetModuleRef } from "./hooks.ts";
 import type {
 	AgentDefinition,
 	Artifact,
@@ -22,7 +22,7 @@ import type {
 	TargetId,
 	ToolSurface,
 	Workflow,
-} from "./primitives";
+} from "./primitives.ts";
 
 export const CURRENT_OIAP_CORE_VERSION = "0.0.0";
 

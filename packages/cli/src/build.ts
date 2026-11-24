@@ -3,10 +3,10 @@ import { dirname, isAbsolute, parse, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { RenderedFile, TargetBundle } from "@oiap/core";
 import { discoverPluginDeclarations } from "@oiap/core";
-import type { HookRuntimeManifest } from "./hook-bundler";
-import { bundleHookRuntimeSource } from "./hook-bundler";
-import type { CliPluginInput } from "./registry";
-import { getRegisteredExporter, registeredTargets } from "./registry";
+import type { HookRuntimeManifest } from "./hook-bundler.ts";
+import { bundleHookRuntimeSource } from "./hook-bundler.ts";
+import type { CliPluginInput } from "./registry.ts";
+import { getRegisteredExporter, registeredTargets } from "./registry.ts";
 
 export interface BuildPluginFileOptions {
 	inputPath: string;

@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportCodex } from "./exporter";
+import { exportCodex } from "./exporter.ts";
 
 describe("exportCodex", () => {
 	test("renders a Codex plugin bundle with project companions", () => {

@@ -37,7 +37,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { OPENCLAW_TARGET, openClawProfile } from "./profile";
+import { OPENCLAW_TARGET, openClawProfile } from "./profile.ts";
 
 export type OpenClawPluginInput = PluginDefinition | PluginIr;
 

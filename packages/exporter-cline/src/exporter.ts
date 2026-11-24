@@ -32,7 +32,7 @@ import {
 	unresolvedTokenIssues,
 } from "@oiap/core";
 import { renderHookRuntimeFiles, unsupportedHookIds } from "@oiap/runtime";
-import { CLINE_TARGET, clineProfile } from "./profile";
+import { CLINE_TARGET, clineProfile } from "./profile.ts";
 
 export type ClinePluginInput = PluginDefinition | PluginIr;
 

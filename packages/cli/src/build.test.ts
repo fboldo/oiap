@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exportClaudeCode } from "@oiap/exporter-claude-code";
-import { bundleHooksFromSource, loadPluginFile } from "./build";
+import { bundleHooksFromSource, loadPluginFile } from "./build.ts";
 
 describe("bundleHooksFromSource", () => {
 	const directories: string[] = [];

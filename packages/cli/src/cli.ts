@@ -1,11 +1,11 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { BuildSummary, TargetBuildResult } from "./build";
-import { buildPluginFile } from "./build";
-import { exporterRegistry, registeredTargets } from "./registry";
-import type { SyncLayout, SyncResult } from "./sync";
-import { syncPluginFile, syncTargets } from "./sync";
+import type { BuildSummary, TargetBuildResult } from "./build.ts";
+import { buildPluginFile } from "./build.ts";
+import { exporterRegistry, registeredTargets } from "./registry.ts";
+import type { SyncLayout, SyncResult } from "./sync.ts";
+import { syncPluginFile, syncTargets } from "./sync.ts";
 
 type CliCommand = BuildCommand | SyncCommand | TargetsCommand | HelpCommand;
 

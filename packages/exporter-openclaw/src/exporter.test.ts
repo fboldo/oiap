@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportOpenClaw } from "./exporter";
+import { exportOpenClaw } from "./exporter.ts";
 
 describe("exportOpenClaw", () => {
 	test("renders a native OpenClaw plugin package", () => {

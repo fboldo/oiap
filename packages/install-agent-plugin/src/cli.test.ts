@@ -11,7 +11,7 @@ import {
 	parseInstallAgentPluginArgs,
 	runInstallAgentPlugin,
 	selectPluginDeclaration,
-} from "./cli";
+} from "./cli.ts";
 
 describe("parseInstallAgentPluginArgs", () => {
 	test("parses list commands", () => {

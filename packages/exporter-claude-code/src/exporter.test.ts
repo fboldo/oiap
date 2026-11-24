@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportClaudeCode } from "./exporter";
+import { exportClaudeCode } from "./exporter.ts";
 
 describe("exportClaudeCode", () => {
 	test("renders an official Claude Code plugin bundle", () => {

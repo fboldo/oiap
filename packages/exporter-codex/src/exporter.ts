@@ -38,7 +38,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { CODEX_TARGET, codexProfile } from "./profile";
+import { CODEX_TARGET, codexProfile } from "./profile.ts";
 
 export type CodexPluginInput = PluginDefinition | PluginIr;
 

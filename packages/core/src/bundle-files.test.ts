@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pluginFiles, toPluginIr } from "./authoring";
+import { pluginFiles, toPluginIr } from "./authoring.ts";
 import {
 	agentAccessDegradation,
 	bundleFileFindings,
@@ -12,8 +12,8 @@ import {
 	renderPluginFiles,
 	resolveBundlePaths,
 	unresolvedTokenIssues,
-} from "./bundle-files";
-import type { RenderedFile } from "./primitives";
+} from "./bundle-files.ts";
+import type { RenderedFile } from "./primitives.ts";
 
 const agentToken = "$" + "{OIAP_AGENT_FILE:reviewer}";
 

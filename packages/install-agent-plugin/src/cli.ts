@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
@@ -16,7 +16,7 @@ import {
 	installPlugin,
 	isBuiltInInstallTarget,
 } from "@oiap/core";
-import { loadPluginFile } from "./plugin-loader";
+import { loadPluginFile } from "./plugin-loader.ts";
 
 const execFileAsync = promisify(execFile);
 

@@ -40,9 +40,9 @@ import {
 import type {
 	OpenCodeHookBridgeManifest,
 	OpenCodeHookDescriptor,
-} from "./hook-plugin-runtime";
-import { renderHookPluginSource } from "./hook-plugin-source";
-import { OPENCODE_TARGET, openCodeProfile } from "./profile";
+} from "./hook-plugin-runtime.ts";
+import { renderHookPluginSource } from "./hook-plugin-source.ts";
+import { OPENCODE_TARGET, openCodeProfile } from "./profile.ts";
 
 export type OpenCodePluginInput = PluginDefinition | PluginIr;
 

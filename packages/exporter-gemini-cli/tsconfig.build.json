@@ -10,7 +10,8 @@
 			"@oiap/runtime": ["../runtime/dist/index.d.ts"]
 		},
 		"rootDir": "src",
-		"sourceMap": true
+		"sourceMap": true,
+		"rewriteRelativeImportExtensions": true
 	},
 	"exclude": ["dist", "**/*.test.ts"]
 }

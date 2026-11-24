@@ -4,7 +4,7 @@ import {
 	createOpenCodeHookHandlers,
 	loadHookDescriptors,
 	runHookRuntime,
-} from "./hook-plugin-runtime";
+} from "./hook-plugin-runtime.ts";
 
 const OPENCODE_TARGET_ID = "opencode";
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

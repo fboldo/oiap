@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
-import type { PluginDefinition } from "./authoring";
+import type { PluginDefinition } from "./authoring.ts";
 import type {
 	HostProfile,
 	InstallPathTemplate,
@@ -11,7 +11,7 @@ import type {
 	RenderedFile,
 	TargetBundle,
 	TargetId,
-} from "./primitives";
+} from "./primitives.ts";
 
 export type InstallPluginInput = PluginDefinition | PluginIr;
 
