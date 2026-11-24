@@ -60,7 +60,7 @@ describe("planSync", () => {
 					bundle("gemini-cli", {
 						"gemini-extension.json": "{}",
 						"skills/a/SKILL.md": "A",
-						"commands/a.toml": "gemini command",
+						"agents/a.md": "gemini agent",
 						"README.md": "readme",
 						".oiap/bundle.json": "{}",
 					}),
@@ -70,7 +70,7 @@ describe("planSync", () => {
 					bundle("claude-code", {
 						".claude-plugin/plugin.json": "{}",
 						"skills/a/SKILL.md": "A",
-						"commands/a.md": "claude command",
+						"agents/a.md": "claude agent",
 					}),
 				],
 				[
@@ -98,7 +98,7 @@ describe("planSync", () => {
 			"claude-code": "plugins/claude-code",
 			codex: "",
 		});
-		expect(paths).toContain("plugins/claude-code/commands/a.md");
+		expect(paths).toContain("plugins/claude-code/agents/a.md");
 		expect(paths).toContain(".codex-plugin/plugin.json");
 		expect(paths).not.toContain("README.md");
 		expect(paths).not.toContain(".oiap/bundle.json");
@@ -254,6 +254,30 @@ describe("planSync with Agent Plugins", () => {
 			"",
 		]);
 		expect(copilotCatalog.plugins[0].source).toBe("./");
+	});
+});
+
+describe("planSync read patterns", () => {
+	test("keeps Claude at the root next to Gemini TOML commands", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"gemini-cli",
+					bundle("gemini-cli", { "commands/plan.toml": "gemini" }),
+				],
+				[
+					"claude-code",
+					bundle("claude-code", { ".claude-plugin/plugin.json": "{}" }),
+				],
+			]),
+			"root",
+		);
+
+		expect(plan.placements.map((placement) => placement.directory)).toEqual([
+			"",
+			"",
+		]);
 	});
 });
 

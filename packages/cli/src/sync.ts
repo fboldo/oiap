@@ -43,7 +43,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		reads: [
 			"gemini-extension.json",
 			"GEMINI.md",
-			"commands/",
+			"commands/*.toml",
 			"hooks/hooks.json",
 			"skills/",
 			"agents/",
@@ -85,7 +85,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		reads: [
 			".claude-plugin/plugin.json",
 			"skills/",
-			"commands/",
+			"commands/*.md",
 			"agents/",
 			"hooks/hooks.json",
 			".mcp.json",
@@ -143,7 +143,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 			".claude-plugin/plugin.json",
 			"skills/",
 			"agents/",
-			"commands/",
+			"commands/*.md",
 			"hooks.json",
 			".mcp.json",
 		],
@@ -460,14 +460,26 @@ function foreignReads(
 	return found;
 }
 
+/**
+ * A read entry is a file path, a directory ending in "/", or "dir/*.ext" for
+ * the files with that extension anywhere under dir (Claude Code loads only
+ * Markdown commands; Gemini CLI only TOML ones).
+ */
 function reads(target: string, path: string): boolean {
 	return (
 		declaredReads.get(target) ??
 		SYNC_TARGET_RULES[target]?.reads ??
 		[]
-	).some((entry) =>
-		entry.endsWith("/") ? path.startsWith(entry) : path === entry,
-	);
+	).some((entry) => {
+		const star = entry.indexOf("/*.");
+		if (star !== -1) {
+			return (
+				path.startsWith(entry.slice(0, star + 1)) &&
+				path.endsWith(entry.slice(star + 2))
+			);
+		}
+		return entry.endsWith("/") ? path.startsWith(entry) : path === entry;
+	});
 }
 
 /**
