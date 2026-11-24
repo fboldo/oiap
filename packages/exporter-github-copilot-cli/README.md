@@ -41,9 +41,10 @@ copilot plugin install ./build/copilot-cli
 - Copilot CLI plugins have no rules or custom-instruction component, so rules
   are exported as skills.
 - Plugin hooks get `PLUGIN_ROOT` in their environment, and the generated
-  commands use it. The OIAP runner does not yet write Copilot CLI hook output
-  (`permissionDecision`, `additionalContext`, ...), so hook decisions are not
-  enforced. The report marks hooks as degraded.
+  commands use it. The OIAP runner writes Copilot CLI hook output
+  (`permissionDecision`, `additionalContext`, `modifiedResult`, `decision`);
+  `modify` and `schedule` results have no Copilot CLI equivalent and are
+  reported as degraded.
 - The plugin root is not expanded in skill or agent Markdown, so references to
   bundled files are relative to the file that contains them.
 - MCP `excludeTools` has no Copilot CLI equivalent and is dropped.

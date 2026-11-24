@@ -6,6 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { bundleInstalledHookRuntime } from "@oiap/cli";
 import {
 	builtInInstallTargets,
 	type DiscoveredPluginDeclaration,
@@ -15,7 +16,6 @@ import {
 	installPlugin,
 	isBuiltInInstallTarget,
 } from "@oiap/core";
-import { bundleInstalledHookRuntime } from "./hook-bundler";
 import { loadPluginFile } from "./plugin-loader";
 
 const execFileAsync = promisify(execFile);

@@ -15,7 +15,7 @@ import type {
 	TargetBundle,
 	ValidationIssue,
 } from "@oiap/core";
-import { loadPluginFile } from "./build";
+import { bundleHooksFromSource, loadPluginFile } from "./build";
 import type { CliPluginInput } from "./registry";
 import { getRegisteredExporter } from "./registry";
 
@@ -562,7 +562,14 @@ export async function syncPluginFile(
 			throw new Error(`No exporter registered for target: ${target}`);
 		}
 
-		bundles.set(target, exporter.exportBundle(plugin));
+		bundles.set(
+			target,
+			await bundleHooksFromSource(
+				exporter.exportBundle(plugin),
+				options.inputPath,
+				options.exportName,
+			),
+		);
 	}
 
 	const plan = planSync(plugin, bundles, options.layout);
