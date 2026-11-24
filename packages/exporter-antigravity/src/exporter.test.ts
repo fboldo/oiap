@@ -7,63 +7,103 @@ import { exportAntigravity } from "./exporter";
 const target = "antigravity";
 
 describe("exportAntigravity", () => {
-	test("renders Antigravity workspace bundle assets", () => {
+	test("renders a native Antigravity plugin", () => {
 		const bundle = exportAntigravity(sampleAntigravityPlugin);
 		const paths = bundle.files.map((file) => file.path);
 
 		expect(bundle.target).toBe(target);
 		expect(bundle.format).toBe("directory");
-		expect(bundle.package?.manifestPath).toBe(".oiap/antigravity-target.json");
-		expect(paths).toContain(".oiap/antigravity-target.json");
-		expect(paths).toContain(".agents/workflows/repo-status.md");
-		expect(paths).toContain(".agents/skills/audit-repo/SKILL.md");
-		expect(paths).toContain(".agents/rules/always-on.md");
-		expect(paths).toContain(".agents/rules/team-guidance.md");
-		expect(paths).toContain(".oiap/agents/reviewer.json");
+		expect(bundle.package?.manifestPath).toBe(
+			".antigravity-plugin/plugin.json",
+		);
+		expect(paths).toContain(".antigravity-plugin/plugin.json");
+		expect(paths).not.toContain("plugin.json");
+		expect(paths).toContain("skills/repo-status/SKILL.md");
+		expect(paths).toContain("skills/audit-repo/SKILL.md");
+		expect(paths).toContain("rules/always-on.md");
+		expect(paths).toContain("rules/team-guidance.md");
+		expect(paths).toContain("agents/reviewer.md");
+		expect(paths).toContain("hooks.json");
+		expect(paths).toContain(".oiap/runtime/runner.mjs");
 		expect(paths).toContain(".oiap/hooks/pre-tool.json");
 		expect(paths).toContain("mcp_config.json");
 		expect(paths).toContain(".oiap/antigravity-permissions.json");
 		expect(paths).toContain(".oiap/capability-report.json");
+		expect(paths.some((path) => path.startsWith(".agents/"))).toBe(false);
+		expect(paths.some((path) => path.startsWith("commands/"))).toBe(false);
 
-		const manifest = readJson<AntigravityTargetManifest>(
+		const manifest = readJson<Record<string, unknown>>(
 			bundle,
-			".oiap/antigravity-target.json",
+			".antigravity-plugin/plugin.json",
 		);
-		expect(manifest).toMatchObject({
+		expect(manifest).toEqual({
+			$schema: "https://antigravity.google/schemas/v1/plugin.json",
 			name: "sample-antigravity",
 			displayName: "Sample Antigravity",
-			target,
-			rules: ".agents/rules/",
-			skills: ".agents/skills/",
-			workflows: ".agents/workflows/",
-			mcpConfig: "mcp_config.json",
+			description: "Exporter coverage fixture for Antigravity.",
+			version: "1.2.3",
+			author: { name: "OIAP" },
+			keywords: ["testing"],
 		});
 
-		const workflow = readText(bundle, ".agents/workflows/repo-status.md");
-		expect(workflow).toContain('name: "repo-status"');
-		expect(workflow).toContain("Use Antigravity-specific status workflow.");
+		const command = readText(bundle, "skills/repo-status/SKILL.md");
+		expect(command).toContain('name: "repo-status"');
+		expect(command).toContain("disable-model-invocation: true");
+		expect(command).toContain("Use Antigravity-specific status workflow.");
 
-		const skill = readText(bundle, ".agents/skills/audit-repo/SKILL.md");
+		const skill = readText(bundle, "skills/audit-repo/SKILL.md");
 		expect(skill).toContain('name: "audit-repo"');
 		expect(skill).toContain("# Audit Repo");
 
-		const alwaysOn = readText(bundle, ".agents/rules/always-on.md");
-		expect(alwaysOn).toContain('activation: "always"');
+		const alwaysOn = readText(bundle, "rules/always-on.md");
+		expect(alwaysOn).toContain('trigger: "always_on"');
 		expect(alwaysOn).toContain("Antigravity always-on guidance.");
 
-		const rule = readText(bundle, ".agents/rules/team-guidance.md");
-		expect(rule).toContain('activation: "glob"');
-		expect(rule).toContain('globs: ["**/*.ts"]');
+		const rule = readText(bundle, "rules/team-guidance.md");
+		expect(rule).toContain('trigger: "glob"');
+		expect(rule).toContain('globs: "**/*.ts"');
 		expect(rule).toContain("Prefer Antigravity docs.");
 
-		const agent = readJson<AntigravityAgentMetadata>(
-			bundle,
-			".oiap/agents/reviewer.json",
+		const agent = readText(bundle, "agents/reviewer.md");
+		expect(agent).toBe(
+			[
+				"---",
+				'name: "reviewer"',
+				'description: "Review generated changes."',
+				"---",
+				"",
+				"Antigravity-specific agent instructions.",
+			].join("\n"),
 		);
-		expect(agent.name).toBe("Reviewer");
-		expect(agent.instructions).toContain(
-			"Antigravity-specific agent instructions.",
+		expect(bundle.report.issues).not.toContainEqual(
+			expect.objectContaining({ code: "invalid-antigravity-plugin-manifest" }),
 		);
+	});
+
+	test("renders hooks.json that runs the OIAP runner from the plugin root", () => {
+		const bundle = exportAntigravity(sampleAntigravityPlugin);
+		const hooks = readJson<
+			Record<
+				string,
+				{
+					enabled: boolean;
+					PreToolUse: {
+						matcher: string;
+						hooks: { type: string; command: string; timeout: number }[];
+					}[];
+				}
+			>
+		>(bundle, "hooks.json");
+		const group = hooks["sample-antigravity"];
+
+		expect(group?.enabled).toBe(true);
+		expect(group?.PreToolUse[0]?.matcher).toBe("Shell");
+		expect(group?.PreToolUse[0]?.hooks[0]).toEqual({
+			type: "command",
+			command:
+				'node "./.oiap/runtime/runner.mjs" run-hook --manifest "./.oiap/runtime/manifest.json" --target "antigravity" --event "before_tool" --hook "pre-tool"',
+			timeout: 3,
+		});
 	});
 
 	test("renders Antigravity MCP config and permission fragments", () => {
@@ -93,14 +133,96 @@ describe("exportAntigravity", () => {
 		expect(bundle.report.status).toBe("degraded");
 		expect(degradedKinds).toContain("commands");
 		expect(degradedKinds).toContain("hooks");
-		expect(degradedKinds).toContain("agents");
 		expect(degradedKinds).toContain("policy");
+		expect(degradedKinds).not.toContain("agents");
 		expect(issueCodes).toContain("degraded-commands");
 		expect(issueCodes).toContain("degraded-hooks");
-		expect(issueCodes).toContain("degraded-agents");
 		expect(issueCodes).toContain("degraded-policy");
+		expect(
+			bundle.report.mappedCapabilities.map((capability) => capability.kind),
+		).toEqual(expect.arrayContaining(["agents", "hooks", "skills"]));
+	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportAntigravity(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"Read ../../standards/style.md, then dispatch ../../agents/critic.md.",
+		);
+		expect(readText(bundle, "agents/critic.md")).not.toContain("access");
+		expect(readText(bundle, "README.md")).toContain("plugin root");
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).toContain("read-only-agent");
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				files: [{ path: "SKILL.md", content: "shadow" }],
+			})),
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
 	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: [target],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleAntigravityPlugin = {
 	manifest: {
@@ -109,6 +231,7 @@ const sampleAntigravityPlugin = {
 		version: "1.2.3",
 		description: "Exporter coverage fixture for Antigravity.",
 		categories: ["testing"],
+		author: { name: "OIAP" },
 		supportedTargets: [target],
 	},
 	invocations: [
@@ -239,21 +362,6 @@ const sampleAntigravityPlugin = {
 	],
 	runtimeModules: [],
 } satisfies PluginDefinition;
-
-interface AntigravityTargetManifest {
-	name: string;
-	displayName: string;
-	target: string;
-	rules?: string;
-	skills?: string;
-	workflows?: string;
-	mcpConfig?: string;
-}
-
-interface AntigravityAgentMetadata {
-	name: string;
-	instructions: string;
-}
 
 interface AntigravityMcpConfig {
 	mcpServers: {

@@ -72,9 +72,10 @@ describe("exportVsCodeCopilot", () => {
 		const preToolUse = first(hooks.hooks.PreToolUse, "PreToolUse hook");
 		const preToolUseCommand = first(preToolUse.hooks, "PreToolUse command");
 
+		const pluginRoot = "$" + "{PLUGIN_ROOT}";
 		expect(preToolUse.matcher).toBe("Shell");
 		expect(preToolUseCommand.command).toBe(
-			`node ".oiap/runtime/runner.mjs" run-hook --manifest ".oiap/runtime/manifest.json" --target "${target}" --event "before_tool" --hook "pre-tool"`,
+			`node "${pluginRoot}/.oiap/runtime/runner.mjs" run-hook --manifest "${pluginRoot}/.oiap/runtime/manifest.json" --target "${target}" --event "before_tool" --hook "pre-tool"`,
 		);
 		expect(preToolUseCommand.timeout).toBe(3);
 		expect(hooks.hooks.SubagentStart).toBeUndefined();
@@ -104,7 +105,102 @@ describe("exportVsCodeCopilot", () => {
 		expect(mcp.mcpServers.docs.args).toEqual(["--stdio"]);
 		expect(mcp.mcpServers.docs.env).toEqual({ DOCS_MODE: "plugin" });
 	});
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportVsCodeCopilot(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"Read ../../standards/style.md, then dispatch ../../agents/critic.agent.md.",
+		);
+
+		const agent = readText(bundle, "agents/critic.agent.md");
+		expect(agent).toContain('tools: ["read","search"]');
+		expect(agent).toContain("user-invocable: false");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).not.toContain("read-only-agent");
+		expect(bundle.report.status).toBe("degraded");
+	});
+
+	test("keeps explicit agent tools over access", () => {
+		const bundle = exportVsCodeCopilot({
+			...bundleFilesPlugin,
+			agents: [
+				{
+					...bundleFilesAgent,
+					tools: [{ id: "read", kind: "tool" }],
+				},
+			],
+		});
+
+		expect(readText(bundle, "agents/critic.agent.md")).toContain(
+			'tools: ["read"]',
+		);
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportVsCodeCopilot({
+			...bundleFilesPlugin,
+			resources: [{ path: "agents/critic.agent.md", content: "shadow" }],
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesAgent = {
+	id: "critic",
+	name: "critic",
+	description: "Read-only critic.",
+	instructions: { id: "critic-body", kind: "instruction" },
+	access: "read-only",
+	targetMetadata: { [target]: { "user-invocable": false } },
+} satisfies NonNullable<PluginDefinition["agents"]>[number];
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: [target],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [bundleFilesAgent],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleVsCodePlugin = {
 	manifest: {

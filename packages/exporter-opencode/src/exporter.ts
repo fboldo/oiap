@@ -24,7 +24,15 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
@@ -137,10 +145,11 @@ function renderOpenCodeFiles(ir: PluginIr): RenderedFile[] {
 	const usedInstructionPaths = new Set<string>();
 	const usedSkillSlugs = new Set<string>();
 	const usedCommandSlugs = new Set<string>();
-	const usedAgentSlugs = new Set<string>();
+	const agentPaths = openCodeAgentPaths(ir.agents);
+	const resourceRoot = openCodeResourceRoot(ir);
 	const projectInstructions = renderProjectInstructions(ir);
 	const ruleFiles = renderProjectRuleFiles(ir.rules, usedInstructionPaths);
-	const pluginFiles = [
+	const generatedFiles = [
 		renderOpenCodeConfig(ir, ruleFiles),
 		...projectInstructions,
 		...ruleFiles,
@@ -151,13 +160,24 @@ function renderOpenCodeFiles(ir: PluginIr): RenderedFile[] {
 			ir.instructions,
 			usedCommandSlugs,
 		),
-		...renderAgents(ir.agents, ir.instructions, usedAgentSlugs),
+		...renderAgents(ir.agents, ir.instructions, agentPaths),
 		...renderHookFiles(ir),
 		renderMcpEvidence(ir.tools),
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			resourceRoot,
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	// OpenCode has no plugin root variable in agent, command or skill text, so
+	// bundle paths are written relative to the file that references them.
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot,
+		agentFiles: Object.fromEntries(agentPaths),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -262,7 +282,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -278,11 +298,18 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`.opencode/skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`.opencode/skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`.opencode/skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -326,14 +353,32 @@ function renderCommands(
 	});
 }
 
+function openCodeAgentPaths(agents: AgentDefinition[]): Map<string, string> {
+	const usedAgentSlugs = new Set<string>();
+
+	return new Map(
+		agents.map((agent) => [
+			agent.id,
+			`.opencode/agents/${reserveSlug(agent.id, usedAgentSlugs, "agent")}.md`,
+		]),
+	);
+}
+
+/**
+ * Plugin resources live under `.opencode/<plugin slug>/` so they stay out of
+ * the project root.
+ */
+function openCodeResourceRoot(ir: PluginIr): string {
+	return `.opencode/${slug(getManifest(ir).id, "oiap-plugin")}`;
+}
+
 function renderAgents(
 	agents: AgentDefinition[],
 	instructions: InstructionModule[],
-	usedAgentSlugs: Set<string>,
+	agentPaths: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
 		const instruction = findInstruction(agent.instructions.id, instructions);
-		const agentSlug = reserveSlug(agent.id, usedAgentSlugs, "agent");
 		const body = [
 			instruction
 				? instructionBody(instruction)
@@ -347,16 +392,32 @@ function renderAgents(
 				description: agent.description,
 				mode: "subagent",
 				model: agent.model,
+				permission: agentPermission(agent),
+				...targetMetadata(agent.targetMetadata),
 			},
 			body,
 		);
 
 		return textFile(
-			`.opencode/agents/${agentSlug}.md`,
+			agentPaths.get(agent.id) ??
+				`.opencode/agents/${slug(agent.id, "agent")}.md`,
 			content,
 			sourceRef(agent.id, "agent"),
 		);
 	});
+}
+
+/**
+ * Read-only agents deny file edits (edit, write, patch) and shell commands.
+ * OpenCode 1 reads this `permission` frontmatter and OpenCode 2 translates it.
+ * https://opencode.ai/docs/permissions/ and https://opencode.ai/docs/migrate-v1
+ */
+function agentPermission(
+	agent: AgentDefinition,
+): OpenCodePermissionConfig | undefined {
+	return agent.access === "read-only"
+		? { edit: "deny", bash: "deny" }
+		: undefined;
 }
 
 function renderAgentMetadata(agent: AgentDefinition): string | undefined {
@@ -500,6 +561,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `.opencode/commands/`: generated command prompt templates, when present.",
 		"- `.opencode/agents/`: generated custom agents, when present.",
 		"- `.opencode/plugins/oiap-hooks.js`: generated OpenCode plugin hook bridge, when present.",
+		`- \`${openCodeResourceRoot(ir)}/\`: plugin resources, when present. Skill files sit beside each SKILL.md.`,
 		"- `.oiap/`: source map, capability report, and runtime metadata.",
 		"## Current Limitations",
 		"OpenCode hook support is implemented as a bundled JavaScript plugin bridge compiled from TypeScript and backed by the generated OIAP runtime. Unsupported OIAP hook lifecycles, non-portable hook handlers, and host-specific hook result mappings are reported as degraded metadata.",
@@ -511,6 +573,12 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		sourceRef(manifest.id, "readme"),
 	);
 }
+
+const BUNDLE_FILE_SUPPORT = {
+	target: OPENCODE_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -577,7 +645,9 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+	];
 	const supportedHooks = supportedOpenCodeHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
 
@@ -668,7 +738,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -699,21 +771,11 @@ function collectIssues(
 }
 
 function validateOpenCodeBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
-
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `OpenCode bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	if (!filePaths.has("opencode.json")) {
 		issues.push({
@@ -1152,7 +1214,10 @@ function withFrontmatter(
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[OPENCODE_TARGET] ?? {};
 }

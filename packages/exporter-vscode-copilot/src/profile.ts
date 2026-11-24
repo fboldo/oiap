@@ -11,6 +11,18 @@ export const vsCodeCopilotProfile = defineHostProfile({
 		notes:
 			"Exports a VS Code Copilot-format agent plugin with root plugin.json.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "partial",
+		notes:
+			"Local installs use project .github/plugins. A stable global install directory is not profile-owned here; use VS Code or Copilot CLI-managed installs, or pass --out when you want an explicit materialization directory.",
+		paths: {
+			local: {
+				base: "cwd",
+				segments: [".github", "plugins", "{pluginId}"],
+			},
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",
@@ -32,7 +44,7 @@ export const vsCodeCopilotProfile = defineHostProfile({
 		supported: true,
 		fidelity: "partial",
 		notes:
-			"Exports root hooks.json commands that call the generated OIAP raw-JS hook runtime. Copilot-format plugins do not define a plugin-root token.",
+			"Exports root hooks.json commands that call the generated OIAP raw-JS hook runtime through the PLUGIN_ROOT token (https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference).",
 	},
 	mcpSupport: {
 		supported: true,

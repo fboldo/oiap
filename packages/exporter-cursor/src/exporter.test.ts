@@ -65,6 +65,30 @@ describe("exportCursor", () => {
 		expect(agent).toContain("Preferred model: gpt-5.1");
 	});
 
+	test("locates the runner through CURSOR_PLUGIN_ROOT for stop hooks", () => {
+		const bundle = exportCursor({
+			...sampleCursorPlugin,
+			hooks: [
+				{
+					kind: "oiap.hook",
+					id: "on-stop",
+					event: "stop",
+					handler: () => ({ decision: "allow" as const }),
+				},
+			],
+		});
+		const hooks = readJson<{
+			hooks: Record<string, Array<{ command: string }>>;
+		}>(bundle, "hooks/hooks.json");
+
+		expect(first(hooks.hooks.stop ?? [], "stop hook").command).toBe(
+			`node "$CURSOR_PLUGIN_ROOT/.oiap/runtime/runner.mjs" run-hook --manifest "$CURSOR_PLUGIN_ROOT/.oiap/runtime/manifest.json" --target "${target}" --event "stop" --hook "on-stop"`,
+		);
+		expect(
+			bundle.report.degradedCapabilities.map((entry) => entry.from),
+		).toContain("plugin-directory-command");
+	});
+
 	test("maps Cursor hooks and reports unsupported hook events", () => {
 		const bundle = exportCursor(sampleCursorPlugin);
 		const hooks = readJson<CursorHooksConfig>(bundle, "hooks/hooks.json");
@@ -106,7 +130,83 @@ describe("exportCursor", () => {
 		expect(mcp.mcpServers.docs.args).toEqual(["--stdio"]);
 		expect(mcp.mcpServers.docs.env).toEqual({ DOCS_MODE: "plugin" });
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportCursor(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"Read ../../standards/style.md, then dispatch ../../agents/critic.md.",
+		);
+		expect(readText(bundle, "agents/critic.md")).toContain("readonly: true");
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).not.toContain("read-only-agent");
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportCursor({
+			...bundleFilesPlugin,
+			resources: [{ path: "agents/critic.md", content: "shadow" }],
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: ["cursor"],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleCursorPlugin = {
 	manifest: {

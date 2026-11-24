@@ -25,7 +25,21 @@ import type {
 	Workflow,
 	WorkflowStep,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	agentAccessDegradation,
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
+import {
+	renderHookRuntimeCommand,
+	renderHookRuntimeFiles,
+	unsupportedHookIds as runtimeUnsupportedHookIds,
+} from "@oiap/runtime";
 import { ANTIGRAVITY_TARGET, antigravityProfile } from "./profile";
 
 export type AntigravityPluginInput = PluginDefinition | PluginIr;
@@ -52,12 +66,49 @@ interface AntigravityPermissionConfig {
 	notes: string[];
 }
 
-interface CommandWorkflowRenderContext {
+interface CommandSkillRenderContext {
 	invocations: Invocation[];
 	instructions: InstructionModule[];
 	recipes: PluginIr["recipes"];
-	usedWorkflowSlugs: Set<string>;
+	usedSkillSlugs: Set<string>;
 }
+
+/**
+ * Antigravity plugin manifest. `.antigravity-plugin/plugin.json` takes
+ * precedence over a root `plugin.json`; the schema rejects unlisted keys.
+ * https://antigravity.google/docs/build-plugins.md
+ */
+export const ANTIGRAVITY_MANIFEST_PATH = ".antigravity-plugin/plugin.json";
+export const ANTIGRAVITY_MANIFEST_SCHEMA =
+	"https://antigravity.google/schemas/v1/plugin.json";
+const ANTIGRAVITY_MANIFEST_KEYS = new Set([
+	"$schema",
+	"name",
+	"displayName",
+	"description",
+	"version",
+	"logo",
+	"disabled",
+	"suggestedPrompts",
+	"skills",
+	"author",
+	"homepage",
+	"repository",
+	"license",
+	"keywords",
+	"extensions",
+]);
+const ANTIGRAVITY_PLUGIN_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** Hook commands run with cwd set to the plugin root. */
+const HOOK_RUNNER_PATH = "./.oiap/runtime/runner.mjs";
+const HOOK_MANIFEST_PATH = "./.oiap/runtime/manifest.json";
+
+/** Expanded in mcp_config.json `args`, `cwd` and `env` only. */
+const MCP_PLUGIN_ROOT_VARIABLE = "$" + "{PLUGIN_ROOT}";
+
+/** Plugin resources live at the plugin root. */
+const RESOURCE_ROOT = "";
 
 export const antigravityExporter = defineExporter({
 	target: ANTIGRAVITY_TARGET,
@@ -80,9 +131,9 @@ export const antigravityExporter = defineExporter({
 			format: "directory",
 			files: graph.files,
 			package: {
-				id: "antigravity-workspace-bundle",
+				id: "antigravity-plugin",
 				target: ANTIGRAVITY_TARGET,
-				manifestPath: ".oiap/antigravity-target.json",
+				manifestPath: ANTIGRAVITY_MANIFEST_PATH,
 				assets: graph.files.map(toPackageAssetRef),
 				trustModel: "local",
 			},
@@ -140,30 +191,38 @@ function isPluginIr(plugin: AntigravityPluginInput): plugin is PluginIr {
 function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 	const usedRulePaths = new Set<string>();
 	const usedSkillSlugs = new Set<string>();
-	const usedWorkflowSlugs = new Set<string>();
-	const pluginFiles = [
-		renderTargetManifest(ir),
+	const agentFiles = agentFilePaths(ir.agents);
+	const generatedFiles = [
+		renderPluginManifest(ir),
 		...renderProjectRuleFiles(ir.rules, usedRulePaths),
 		...renderInstructionRules(ir, usedRulePaths),
 		...renderSkills(ir.skills, ir.instructions, usedSkillSlugs),
-		...renderCommandWorkflows(ir.commands, {
+		...renderCommandSkills(ir.commands, {
 			invocations: ir.invocations,
 			instructions: ir.instructions,
 			recipes: ir.recipes,
-			usedWorkflowSlugs,
+			usedSkillSlugs,
 		}),
-		...renderStructuredWorkflows(
-			ir.workflows,
-			ir.invocations,
-			usedWorkflowSlugs,
-		),
-		...renderAgentMetadata(ir.agents, ir.instructions),
-		...renderHookMetadata(ir.hooks),
-		...renderMcpFiles(ir.tools),
+		...renderWorkflowSkills(ir.workflows, ir.invocations, usedSkillSlugs),
+		...renderAgents(ir.agents, ir.instructions, agentFiles),
+		...renderHookFiles(ir),
 		renderPermissionConfig(ir.policies),
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
-		renderPackageReadme(ir),
+		...renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "resource"),
+		),
+	];
+	const pathContext = { resourceRoot: RESOURCE_ROOT, agentFiles };
+	const pluginFiles = [
+		...resolveBundlePaths(generatedFiles, pathContext),
+		...resolveBundlePaths(renderMcpFiles(ir.tools), {
+			...pathContext,
+			rootVariable: MCP_PLUGIN_ROOT_VARIABLE,
+		}),
 	];
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
@@ -189,32 +248,30 @@ function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
-function renderTargetManifest(ir: PluginIr): RenderedFile {
+function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const content = omitUndefined({
-		name: slug(manifest.id, "oiap-plugin"),
+		$schema: ANTIGRAVITY_MANIFEST_SCHEMA,
+		name: pluginName(ir),
 		displayName: manifest.name,
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
 		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
-		target: ANTIGRAVITY_TARGET,
-		rules: hasRuleOutput(ir) ? ".agents/rules/" : undefined,
-		skills: ir.skills.length > 0 ? ".agents/skills/" : undefined,
-		workflows: hasWorkflowOutput(ir) ? ".agents/workflows/" : undefined,
-		mcpConfig: ir.tools.some((tool) => tool.server)
-			? "mcp_config.json"
-			: undefined,
-		permissions:
-			ir.policies.length > 0 ? ".oiap/antigravity-permissions.json" : undefined,
 	});
 
 	return jsonFile(
-		".oiap/antigravity-target.json",
+		ANTIGRAVITY_MANIFEST_PATH,
 		content,
 		sourceRef(manifest.id, "manifest"),
 	);
+}
+
+function pluginName(ir: PluginIr): string {
+	return slug(getManifest(ir).id, "oiap-plugin");
 }
 
 function renderProjectRuleFiles(
@@ -228,11 +285,15 @@ function renderProjectRuleFiles(
 				normalizeAntigravityRulePath(rule),
 				usedRulePaths,
 			);
+			const trigger = antigravityRuleTrigger(rule.activation);
 			const content = withFrontmatter(
 				{
+					trigger,
+					globs:
+						trigger === "glob" && rule.globs && rule.globs.length > 0
+							? rule.globs.join(", ")
+							: undefined,
 					description: rule.description ?? rule.id,
-					activation: antigravityRuleActivation(rule.activation),
-					globs: rule.globs && rule.globs.length > 0 ? rule.globs : undefined,
 					...rule.frontmatter,
 				},
 				rule.content,
@@ -248,17 +309,17 @@ function renderInstructionRules(
 ): RenderedFile[] {
 	return standaloneInstructions(ir).map((instruction) => {
 		const path = reservePath(
-			`.agents/rules/${slug(instruction.id, "instruction")}.md`,
+			`rules/${slug(instruction.id, "instruction")}.md`,
 			usedRulePaths,
 		);
 		const content = withFrontmatter(
 			{
-				description: instruction.triggers[0] ?? instruction.id,
-				activation:
+				trigger:
 					instruction.purpose === "always_on" ||
 					instruction.purpose === "safety"
-						? "always"
-						: "model",
+						? "always_on"
+						: "model_decision",
+				description: instruction.triggers[0] ?? instruction.id,
 				...instruction.frontmatter,
 			},
 			instructionBody(instruction),
@@ -277,7 +338,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -292,17 +353,28 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`.agents/skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
-function renderCommandWorkflows(
+/**
+ * Antigravity plugins do not load `commands/`; the build guide names
+ * `skills/` as the equivalent, invoked with `/<skill-name>`.
+ */
+function renderCommandSkills(
 	commands: CommandAsset[],
-	context: CommandWorkflowRenderContext,
+	context: CommandSkillRenderContext,
 ): RenderedFile[] {
 	return commands.map((command) => {
 		const invocation = findInvocation(
@@ -315,16 +387,12 @@ function renderCommandWorkflows(
 		const recipe = command.recipe
 			? context.recipes.find((candidate) => candidate.id === command.recipe?.id)
 			: undefined;
-		const workflowName = invocation
+		const commandName = invocation
 			? targetInvocationName(invocation)
 			: command.id;
-		const workflowSlug = reserveSlug(
-			workflowName,
-			context.usedWorkflowSlugs,
-			"workflow",
-		);
+		const skillSlug = reserveSlug(commandName, context.usedSkillSlugs, "skill");
 		const body = [
-			`# ${workflowName}`,
+			`# ${commandName}`,
 			invocation?.helpText ??
 				`Command invocation reference not found: ${command.invocation.id}`,
 			prompt ? instructionBody(prompt) : undefined,
@@ -335,26 +403,26 @@ function renderCommandWorkflows(
 			.join("\n\n");
 		const content = withFrontmatter(
 			{
-				name: workflowSlug,
-				title: workflowName,
+				name: skillSlug,
 				description: invocation?.helpText ?? command.id,
+				"disable-model-invocation": true,
 				...targetMetadata(command.targetMetadata),
 			},
 			body,
 		);
 
 		return textFile(
-			`.agents/workflows/${workflowSlug}.md`,
+			`skills/${skillSlug}/SKILL.md`,
 			content,
-			sourceRef(command.id, "command-as-workflow"),
+			sourceRef(command.id, "command-as-skill"),
 		);
 	});
 }
 
-function renderStructuredWorkflows(
+function renderWorkflowSkills(
 	workflows: Workflow[],
 	invocations: Invocation[],
-	usedWorkflowSlugs: Set<string>,
+	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
 	return workflows.map((workflow) => {
 		const invocation = workflow.activation.invocation
@@ -363,11 +431,7 @@ function renderStructuredWorkflows(
 		const workflowName = invocation
 			? targetInvocationName(invocation)
 			: workflow.id;
-		const workflowSlug = reserveSlug(
-			workflowName,
-			usedWorkflowSlugs,
-			"workflow",
-		);
+		const skillSlug = reserveSlug(workflowName, usedSkillSlugs, "skill");
 		const body = [
 			`# ${workflow.title}`,
 			`Activation: ${workflow.activation.mode}`,
@@ -383,73 +447,216 @@ function renderStructuredWorkflows(
 		]
 			.filter(Boolean)
 			.join("\n\n");
+		const userInvoked =
+			workflow.activation.mode === "manual" ||
+			workflow.activation.mode === "command";
 		const content = withFrontmatter(
 			{
-				name: workflowSlug,
-				title: workflow.title,
+				name: skillSlug,
 				description:
 					workflow.activation.triggers?.[0] ??
 					invocation?.helpText ??
 					workflow.title,
+				"disable-model-invocation": userInvoked ? true : undefined,
 			},
 			body,
 		);
 
 		return textFile(
-			`.agents/workflows/${workflowSlug}.md`,
+			`skills/${skillSlug}/SKILL.md`,
 			content,
-			sourceRef(workflow.id, "workflow"),
+			sourceRef(workflow.id, "workflow-as-skill"),
 		);
 	});
 }
 
-function renderAgentMetadata(
+function agentFilePaths(agents: AgentDefinition[]): Record<string, string> {
+	const usedSlugs = new Set<string>();
+
+	return Object.fromEntries(
+		agents.map((agent) => [
+			agent.id,
+			`agents/${reserveSlug(agent.id, usedSlugs, "agent")}.md`,
+		]),
+	);
+}
+
+/**
+ * Custom agents and subagents: `agents/<name>.md` with `name` and
+ * `description` frontmatter. Gemini CLI reads the same root `agents/*.md`
+ * with a strict schema, so only the keys both hosts share are emitted;
+ * `targetMetadata.antigravity` adds Antigravity-only keys (`tools`, `model`,
+ * `commandExecutionPolicy`, ...) on request.
+ * https://antigravity.google/docs/subagents/
+ */
+function renderAgents(
 	agents: AgentDefinition[],
 	instructions: InstructionModule[],
+	agentFiles: Record<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
 		const instruction = findInstruction(agent.instructions.id, instructions);
-
-		return jsonFile(
-			`.oiap/agents/${slug(agent.id, "agent")}.json`,
+		const path = agentFiles[agent.id] ?? `agents/${slug(agent.id, "agent")}.md`;
+		const name = path.slice("agents/".length, -".md".length);
+		const content = withFrontmatter(
 			{
-				id: agent.id,
-				name: agent.name,
+				name,
 				description: agent.description,
-				model: agent.model,
-				tools: agent.tools,
-				instructions: instruction
-					? instructionBody(instruction)
-					: `Agent instruction reference not found: ${agent.instructions.id}`,
-				degradation:
-					"Antigravity documents a browser subagent and task groups, but not user-defined custom agent configuration files.",
+				...targetMetadata(agent.targetMetadata),
 			},
-			sourceRef(agent.id, "agent"),
+			instruction
+				? instructionBody(instruction)
+				: `Agent instruction reference not found: ${agent.instructions.id}`,
 		);
+
+		return textFile(path, content, sourceRef(agent.id, "agent"));
 	});
 }
 
-function renderHookMetadata(hooks: HookDefinition[]): RenderedFile[] {
-	return hooks.map((hook) =>
-		jsonFile(
-			`.oiap/hooks/${slug(hook.id, "hook")}.json`,
-			{
-				id: hook.id,
+function renderHookFiles(ir: PluginIr): RenderedFile[] {
+	const hooks = supportedAntigravityHooks(ir.hooks);
+
+	if (hooks.length === 0) {
+		return [];
+	}
+
+	return [
+		renderHooksConfig(ir, hooks),
+		...hooks.map(renderHookMetadata),
+		...renderHookRuntimeFiles({
+			pluginId: getManifest(ir).id,
+			target: ANTIGRAVITY_TARGET,
+			hooks,
+			targetEvent: (hook) => toAntigravityHookEvent(hook.event),
+		}).files,
+	];
+}
+
+/**
+ * Root `hooks.json`: named groups of lifecycle event arrays. Tool events wrap
+ * handlers in `{ matcher, hooks }`; the others take handlers directly.
+ * Commands run with cwd set to the plugin root.
+ * https://antigravity.google/docs/build-plugins.md
+ */
+function renderHooksConfig(
+	ir: PluginIr,
+	hooks: HookDefinition[],
+): RenderedFile {
+	const group: Record<string, unknown> = { enabled: true };
+
+	for (const hook of hooks) {
+		const event = toAntigravityHookEvent(hook.event);
+
+		if (!event) {
+			continue;
+		}
+
+		const handler = omitUndefined({
+			type: "command",
+			command: renderHookRuntimeCommand({
+				runnerPath: HOOK_RUNNER_PATH,
+				manifestPath: HOOK_MANIFEST_PATH,
+				target: ANTIGRAVITY_TARGET,
 				event: hook.event,
-				match: hook.match,
-				timeoutMs: hook.timeoutMs,
-				failureMode: hook.failureMode,
-				optional: hook.optional ?? false,
-				capabilities: hook.capabilities ?? {},
-				runtime: {
-					status: "metadata-only",
-					message:
-						"Antigravity docs do not document hook lifecycle configuration; OIAP hook source is recorded for review only.",
-				},
-			},
-			sourceRef(hook.id, "hook"),
-		),
+				hookId: hook.id,
+			}),
+			timeout:
+				hook.timeoutMs === undefined
+					? undefined
+					: Math.max(1, Math.ceil(hook.timeoutMs / 1000)),
+		});
+		const entries = (group[event] as unknown[] | undefined) ?? [];
+		entries.push(
+			isToolHookEvent(event)
+				? { matcher: renderHookMatcher(hook.match), hooks: [handler] }
+				: handler,
+		);
+		group[event] = entries;
+	}
+
+	return jsonFile(
+		"hooks.json",
+		{ [pluginName(ir)]: group },
+		sourceRef("antigravity-hooks", "hooks"),
 	);
+}
+
+function renderHookMetadata(hook: HookDefinition): RenderedFile {
+	return jsonFile(
+		`.oiap/hooks/${slug(hook.id, "hook")}.json`,
+		{
+			id: hook.id,
+			event: hook.event,
+			antigravityEvent: toAntigravityHookEvent(hook.event),
+			match: hook.match,
+			timeoutMs: hook.timeoutMs,
+			failureMode: hook.failureMode,
+			optional: hook.optional ?? false,
+			capabilities: hook.capabilities ?? {},
+			runtime: {
+				status: "generated-js-runner",
+				message:
+					"Antigravity hooks.json calls the generated OIAP raw-JS hook runner from the plugin root. The runner writes Antigravity hook responses (decision, injectSteps).",
+			},
+		},
+		sourceRef(hook.id, "hook"),
+	);
+}
+
+function supportedAntigravityHooks(hooks: HookDefinition[]): HookDefinition[] {
+	return hooks.filter((hook) => Boolean(toAntigravityHookEvent(hook.event)));
+}
+
+function toAntigravityHookEvent(
+	event: HookDefinition["event"],
+): string | undefined {
+	switch (event) {
+		case "session_start":
+			return "SessionStart";
+		case "user_prompt_submit":
+		case "before_agent":
+			return "PreInvocation";
+		case "after_agent":
+			return "PostInvocation";
+		case "before_tool":
+			return "PreToolUse";
+		case "after_tool":
+			return "PostToolUse";
+		case "stop":
+			return "Stop";
+		case "permission_request":
+			return undefined;
+	}
+}
+
+function isToolHookEvent(event: string): boolean {
+	return event === "PreToolUse" || event === "PostToolUse";
+}
+
+/** Tool-name regex for PreToolUse and PostToolUse. */
+function renderHookMatcher(match: HookDefinition["match"]): string {
+	const matcher: unknown = match;
+
+	if (isRecord(matcher)) {
+		if (
+			matcher.kind === "expression" &&
+			typeof matcher.expression === "string"
+		) {
+			return matcher.expression;
+		}
+
+		const tool = isRecord(matcher.tool) ? matcher.tool : undefined;
+
+		if (typeof tool?.name === "string") {
+			return tool.name;
+		}
+	}
+
+	return ".*";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function renderMcpFiles(tools: ToolSurface[]): RenderedFile[] {
@@ -521,29 +728,42 @@ function renderRuntimeModules(runtimeModules: RuntimeModule[]): RenderedFile {
 	);
 }
 
-function renderPackageReadme(ir: PluginIr): RenderedFile {
+/** Skipped when a plugin resource already ships a root README.md. */
+function renderPackageReadme(ir: PluginIr): RenderedFile[] {
+	if ((ir.resources ?? []).some((file) => file.path === "README.md")) {
+		return [];
+	}
+
 	const manifest = getManifest(ir);
 	const sections = [
 		`# ${manifest.name}`,
 		manifest.description,
-		"This Google Antigravity workspace bundle was generated by the OIAP Antigravity exporter.",
+		"This Google Antigravity plugin was generated by the OIAP Antigravity exporter. Install it with `agy plugin install <path or GitHub URL>`.",
 		"## Contents",
-		"- `.agents/rules/`: generated workspace rules, when present.",
-		"- `.agents/skills/`: generated Agent Skills folders, when present.",
-		"- `.agents/workflows/`: generated workflow markdown for slash-invoked commands and workflows, when present.",
-		"- `mcp_config.json`: generated MCP server configuration fragment, when present.",
-		"- `.oiap/antigravity-permissions.json`: documented permission resource strings for review, when policies are present.",
-		"- `.oiap/`: source map, capability report, and degraded metadata.",
-		"## Current Limitations",
-		"Antigravity does not currently document a native plugin manifest, hook configuration, custom agent files, or a filesystem path for workflow markdown. Generated workflow and permission files are reviewable bundle artifacts and may need placement by a host or user workflow.",
+		`- \`${ANTIGRAVITY_MANIFEST_PATH}\`: plugin manifest.`,
+		"- `skills/`: skills, plus commands and workflows rendered as skills (invoke with `/<skill-name>`), when present. Skill files live beside each SKILL.md.",
+		"- `agents/`: custom agents and subagents, when present.",
+		"- `rules/`: rules, when present.",
+		"- `hooks.json` and `.oiap/runtime/`: lifecycle hooks and the OIAP hook runner, when present.",
+		"- `mcp_config.json`: MCP servers, when present.",
+		"- `.oiap/`: source map, capability report, permission fragments, and degraded metadata.",
+		"Plugin resources, when present, are at the plugin root.",
 	];
 
-	return textFile(
-		"README.md",
-		sections.join("\n\n"),
-		sourceRef(manifest.id, "readme"),
-	);
+	return [
+		textFile(
+			"README.md",
+			sections.join("\n\n"),
+			sourceRef(manifest.id, "readme"),
+		),
+	];
 }
+
+const BUNDLE_FILE_SUPPORT = {
+	target: ANTIGRAVITY_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -585,8 +805,17 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 		capabilities.push({ kind: "skills", target: ANTIGRAVITY_TARGET });
 	}
 
-	if (hasWorkflowOutput(ir)) {
+	if (hasCommandOutput(ir)) {
 		capabilities.push({ kind: "commands", target: ANTIGRAVITY_TARGET });
+	}
+
+	if (ir.agents.length > 0) {
+		capabilities.push({ kind: "agents", target: ANTIGRAVITY_TARGET });
+	}
+
+	if (supportedAntigravityHooks(ir.hooks).length > 0) {
+		capabilities.push({ kind: "hooks", target: ANTIGRAVITY_TARGET });
+		capabilities.push({ kind: "runtime", target: ANTIGRAVITY_TARGET });
 	}
 
 	if (ir.tools.some((tool) => tool.server)) {
@@ -601,35 +830,57 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+		...agentAccessDegradation(
+			ANTIGRAVITY_TARGET,
+			ir.agents,
+			"Antigravity documents no read-only flag for agents, only a `tools` allowlist and `commandExecutionPolicy` that Gemini CLI, which reads the same agents/ folder, does not accept. Add them through targetMetadata.antigravity if the plugin targets Antigravity only.",
+		),
+	];
 
-	if (hasWorkflowOutput(ir)) {
+	if (hasCommandOutput(ir)) {
 		degradations.push({
 			capability: { kind: "commands", target: ANTIGRAVITY_TARGET },
-			from: "documented-slash-workflow",
-			to: "workspace-workflow-markdown",
+			from: "slash-command",
+			to: "skill",
 			reason:
-				"Antigravity documents slash-invoked workflow markdown, but does not document the workflow filesystem directory; OIAP emits .agents/workflows as a reviewable workspace artifact.",
+				"Antigravity plugins do not load commands/ or workflows; commands and workflows are rendered as skills under skills/, invoked with /<skill-name>.",
 		});
 	}
 
-	if (ir.hooks.length > 0) {
+	const nonPortableHookIds = runtimeUnsupportedHookIds(
+		supportedAntigravityHooks(ir.hooks),
+	);
+
+	if (nonPortableHookIds.length > 0) {
 		degradations.push({
 			capability: { kind: "hooks", target: ANTIGRAVITY_TARGET },
-			from: "oiap-hook-lifecycle",
+			from: "portable-function-hook",
 			to: "metadata-only-hook",
-			reason:
-				"Antigravity docs do not document hook lifecycle configuration, so hooks are recorded as metadata only.",
+			reason: `${nonPortableHookIds.length} hook(s) are not serializable portable functions and were recorded as runtime metadata only.`,
 		});
 	}
 
-	if (ir.agents.length > 0) {
+	if (supportedAntigravityHooks(ir.hooks).length > 0) {
 		degradations.push({
-			capability: { kind: "agents", target: ANTIGRAVITY_TARGET },
-			from: "custom-agent",
-			to: "metadata-only-agent",
+			capability: { kind: "hooks", target: ANTIGRAVITY_TARGET },
+			from: "all-hook-decisions",
+			to: "documented-antigravity-responses",
 			reason:
-				"Antigravity documents task groups and a browser subagent, but not user-defined custom agent files.",
+				"The OIAP runner maps block, allow, ask and inject_context to Antigravity hook responses (decision, injectSteps; https://antigravity.google/docs/hooks). modify, replace_result and schedule are not representable, and PostToolUse responses are always empty.",
+		});
+	}
+
+	const unsupportedHookCount =
+		ir.hooks.length - supportedAntigravityHooks(ir.hooks).length;
+
+	if (unsupportedHookCount > 0) {
+		degradations.push({
+			capability: { kind: "hooks", target: ANTIGRAVITY_TARGET },
+			from: "all-oiap-hook-events",
+			to: "antigravity-hook-events",
+			reason: `${unsupportedHookCount} hook event(s) have no Antigravity lifecycle equivalent and were not emitted.`,
 		});
 	}
 
@@ -649,7 +900,7 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			from: "policy-enforcement",
 			to: "permission-resource-fragment",
 			reason:
-				"Antigravity documents allow, deny, and ask resource strings but not a project-local policy file; generated permissions are reviewable fragments.",
+				"Antigravity plugins have no permission policy file; generated allow, deny, and ask resource strings are reviewable fragments under .oiap/.",
 		});
 	}
 
@@ -688,7 +939,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -719,27 +972,19 @@ function collectIssues(
 }
 
 function validateAntigravityBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const manifestFile = bundle.files.find(
+		(file) => file.path === ANTIGRAVITY_MANIFEST_PATH,
+	);
 
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `Antigravity bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
-
-	if (!filePaths.has(".oiap/antigravity-target.json")) {
+	if (!manifestFile) {
 		issues.push({
 			severity: "error",
-			code: "missing-antigravity-target-manifest",
-			message: "Antigravity bundle is missing .oiap/antigravity-target.json.",
+			code: "missing-antigravity-plugin-manifest",
+			message: `Antigravity plugin is missing ${ANTIGRAVITY_MANIFEST_PATH}.`,
 		});
 	}
 
@@ -751,7 +996,11 @@ function validateAntigravityBundle(bundle: TargetBundle): ValidationIssue[] {
 		}
 
 		try {
-			JSON.parse(file.content);
+			const value: unknown = JSON.parse(file.content);
+
+			if (file === manifestFile) {
+				issues.push(...manifestIssues(value));
+			}
 		} catch (error) {
 			issues.push({
 				severity: "error",
@@ -760,6 +1009,42 @@ function validateAntigravityBundle(bundle: TargetBundle): ValidationIssue[] {
 				path: file.path,
 			});
 		}
+	}
+
+	return issues;
+}
+
+function manifestIssues(manifest: unknown): ValidationIssue[] {
+	if (!isRecord(manifest)) {
+		return [
+			{
+				severity: "error",
+				code: "invalid-antigravity-plugin-manifest",
+				message: "Antigravity plugin manifest must be a JSON object.",
+				path: ANTIGRAVITY_MANIFEST_PATH,
+			},
+		];
+	}
+
+	const issues: ValidationIssue[] = Object.keys(manifest)
+		.filter((key) => !ANTIGRAVITY_MANIFEST_KEYS.has(key))
+		.map((key) => ({
+			severity: "error",
+			code: "invalid-antigravity-plugin-manifest",
+			message: `Antigravity plugin manifest does not allow the key ${key}.`,
+			path: ANTIGRAVITY_MANIFEST_PATH,
+		}));
+
+	if (
+		typeof manifest.name !== "string" ||
+		!ANTIGRAVITY_PLUGIN_NAME.test(manifest.name)
+	) {
+		issues.push({
+			severity: "error",
+			code: "invalid-antigravity-plugin-manifest",
+			message: "Antigravity plugin manifest name must be lowercase kebab-case.",
+			path: ANTIGRAVITY_MANIFEST_PATH,
+		});
 	}
 
 	return issues;
@@ -801,6 +1086,10 @@ function getManifest(ir: PluginIr) {
 			description: "Generated OIAP plugin bundle.",
 			categories: [],
 			supportedTargets: [ANTIGRAVITY_TARGET],
+			author: undefined,
+			homepage: undefined,
+			repository: undefined,
+			license: undefined,
 		}
 	);
 }
@@ -852,23 +1141,22 @@ function hasRuleOutput(ir: PluginIr): boolean {
 	);
 }
 
-function hasWorkflowOutput(ir: PluginIr): boolean {
+function hasCommandOutput(ir: PluginIr): boolean {
 	return ir.commands.length > 0 || ir.workflows.length > 0;
 }
 
-function antigravityRuleActivation(
-	activation: ProjectRule["activation"],
-): string {
+/** Rule `trigger` values: always_on, model_decision, glob, manual. */
+function antigravityRuleTrigger(activation: ProjectRule["activation"]): string {
 	switch (activation) {
 		case "always":
-			return "always";
+			return "always_on";
 		case "glob":
 		case "pattern":
 			return "glob";
 		case "manual":
 			return "manual";
 		case "model":
-			return "model";
+			return "model_decision";
 	}
 }
 
@@ -1036,30 +1324,29 @@ function hasAntigravityMcpPolicyGaps(tools: ToolSurface[]): boolean {
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[ANTIGRAVITY_TARGET] ?? {};
 }
 
+/** Rules live under the plugin's `rules/` folder; workspace prefixes are dropped. */
 function normalizeAntigravityRulePath(rule: ProjectRule): string {
 	const cleanPath = sanitizeRelativePath(rule.path);
+	const fallback = `${slug(rule.id, "rule")}.md`;
 
-	if (!cleanPath) {
-		return `.agents/rules/${slug(rule.id, "rule")}.md`;
+	if (!cleanPath || cleanPath.endsWith("/")) {
+		return `rules/${fallback}`;
 	}
 
-	let rulePath = cleanPath.replace(/^\.agent\/rules\//, ".agents/rules/");
-	rulePath = rulePath.replace(/^\.agents\//, ".agents/");
+	const prefix = /^(?:\.agents?\/rules\/|rules\/)/;
+	const relative = prefix.test(cleanPath)
+		? cleanPath.replace(prefix, "")
+		: fileBaseName(cleanPath);
 
-	if (!rulePath.startsWith(".agents/rules/")) {
-		rulePath = `.agents/rules/${fileBaseName(rulePath)}`;
-	}
-
-	if (rulePath === ".agents/rules/" || rulePath.endsWith("/")) {
-		rulePath = `${rulePath}${slug(rule.id, "rule")}.md`;
-	}
-
-	return ensureMarkdownPath(rulePath);
+	return ensureMarkdownPath(`rules/${relative || fallback}`);
 }
 
 function sanitizeRelativePath(value: string): string | undefined {

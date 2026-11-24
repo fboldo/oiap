@@ -23,6 +23,9 @@
 			"@oiap/exporter-cline": ["./packages/exporter-cline/src/index.ts"],
 			"@oiap/exporter-codex": ["./packages/exporter-codex/src/index.ts"],
 			"@oiap/exporter-cursor": ["./packages/exporter-cursor/src/index.ts"],
+			"@oiap/exporter-github-copilot-cli": [
+				"./packages/exporter-github-copilot-cli/src/index.ts"
+			],
 			"@oiap/exporter-gemini-cli": [
 				"./packages/exporter-gemini-cli/src/index.ts"
 			],
@@ -33,7 +36,8 @@
 			"@oiap/exporter-claude-code": [
 				"./packages/exporter-claude-code/src/index.ts"
 			],
-			"@oiap/exporter-openclaw": ["./packages/exporter-openclaw/src/index.ts"]
+			"@oiap/exporter-openclaw": ["./packages/exporter-openclaw/src/index.ts"],
+			"@oiap/exporter-windsurf": ["./packages/exporter-windsurf/src/index.ts"]
 		},
 
 		// Best practices

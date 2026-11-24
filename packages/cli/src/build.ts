@@ -2,6 +2,9 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, parse, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { RenderedFile, TargetBundle } from "@oiap/core";
+import { discoverPluginDeclarations } from "@oiap/core";
+import type { HookRuntimeManifest } from "./hook-bundler";
+import { bundleHookRuntimeSource } from "./hook-bundler";
 import type { CliPluginInput } from "./registry";
 import { getRegisteredExporter, registeredTargets } from "./registry";
 
@@ -39,7 +42,11 @@ export async function buildPluginFile(
 			throw new Error(`No exporter registered for target: ${target}`);
 		}
 
-		const bundle = exporter.exportBundle(plugin);
+		const bundle = await bundleHooksFromSource(
+			exporter.exportBundle(plugin),
+			options.inputPath,
+			options.exportName,
+		);
 		const outDir = resolveOutputDir(options.outDir, options.target, target);
 		const files = await writeTargetBundle(bundle, outDir);
 
@@ -47,6 +54,63 @@ export async function buildPluginFile(
 	}
 
 	return { inputPath, builds };
+}
+
+/**
+ * Exporters copy each hook handler's function source into
+ * `.oiap/runtime/hooks.mjs`, which drops its imports and module-level helpers.
+ * Rebuild that file from the plugin source so handlers run as written.
+ */
+export async function bundleHooksFromSource(
+	bundle: TargetBundle,
+	inputPath: string,
+	exportName?: string,
+): Promise<TargetBundle> {
+	const manifests = bundle.files.filter((file) =>
+		file.path.endsWith(".oiap/runtime/manifest.json"),
+	);
+
+	if (manifests.length === 0) {
+		return bundle;
+	}
+
+	const pluginFilePath = resolve(inputPath);
+	const declaration = (await discoverPluginDeclarations(pluginFilePath)).find(
+		(candidate) =>
+			exportName
+				? candidate.exportName === exportName
+				: candidate.exportKind === "default" ||
+					candidate.exportName === "plugin",
+	);
+
+	if (!declaration) {
+		return bundle;
+	}
+
+	const replacements = new Map<string, string>();
+
+	for (const manifestFile of manifests) {
+		const source = await bundleHookRuntimeSource({
+			pluginFilePath,
+			declaration,
+			manifest: JSON.parse(String(manifestFile.content)) as HookRuntimeManifest,
+		});
+
+		if (source !== undefined) {
+			replacements.set(
+				manifestFile.path.replace(/manifest\.json$/, "hooks.mjs"),
+				source,
+			);
+		}
+	}
+
+	return {
+		...bundle,
+		files: bundle.files.map((file) => {
+			const content = replacements.get(file.path);
+			return content === undefined ? file : { ...file, content };
+		}),
+	};
 }
 
 export async function loadPluginFile(

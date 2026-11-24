@@ -2,14 +2,31 @@
 
 Google Antigravity exporter for Open Interoperable Agent Plugins.
 
-The exporter renders reviewable Antigravity workspace bundle artifacts:
+The exporter renders a native Antigravity plugin, installable with
+`agy plugin install <path or GitHub URL>` or `/plugin` in the app
+([plugins](https://antigravity.google/docs/plugins.md),
+[build plugins](https://antigravity.google/docs/build-plugins.md)):
 
-- `.agents/rules/` workspace rules.
-- `.agents/skills/` Agent Skills.
-- `.agents/workflows/` workflow markdown for slash-invoked commands.
-- `mcp_config.json` using Antigravity's documented `mcpServers` shape.
-- `.oiap/` source maps, capability reports, hook/custom-agent metadata, and
-  policy fragments.
+- `.antigravity-plugin/plugin.json`: the manifest, with schema-valid keys only.
+  It takes precedence over a root `plugin.json`, which other hosts also read.
+- `skills/<name>/SKILL.md`: skills, with `SkillAsset.files` beside them.
+  Commands and workflows become skills too, since plugins do not load
+  `commands/`; invoke them with `/<skill-name>`.
+- `agents/<name>.md`: custom agents and subagents with `name` and
+  `description` frontmatter
+  ([subagents](https://antigravity.google/docs/subagents/)). Gemini CLI reads
+  the same folder with a strict schema, so other keys come only from
+  `targetMetadata.antigravity`.
+- `rules/<name>.md`: rules with `trigger` and comma-separated `globs`
+  frontmatter.
+- `hooks.json` and `.oiap/runtime/`: lifecycle hooks that run the OIAP hook
+  runner from the plugin root; the runner answers with Antigravity hook
+  responses (`decision`, `injectSteps`).
+- `mcp_config.json`: MCP servers under `mcpServers`.
+- Plugin `resources` at the plugin root.
+- `.oiap/`: source map, capability report, permission fragments, and policy
+  evidence.
 
-The output is a bundle artifact only. It does not write to `~/.gemini`, mutate
-Antigravity settings, or install MCP servers.
+Antigravity installs plugins to `~/.gemini/config/plugins/<plugin-name>`
+(global) or `.agents/plugins/` (workspace). The exporter itself writes only
+the bundle.

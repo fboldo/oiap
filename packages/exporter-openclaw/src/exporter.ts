@@ -23,7 +23,16 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	agentAccessDegradation,
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
@@ -137,7 +146,7 @@ function isPluginIr(plugin: OpenClawPluginInput): plugin is PluginIr {
 
 function renderOpenClawFiles(ir: PluginIr): RenderedFile[] {
 	const usedSkillSlugs = new Set<string>();
-	const pluginFiles = [
+	const generatedFiles = [
 		renderPackageJson(ir),
 		renderPluginManifest(ir),
 		renderEntrypoint(ir),
@@ -150,14 +159,25 @@ function renderOpenClawFiles(ir: PluginIr): RenderedFile[] {
 		),
 		...renderInstructionSkills(ir, usedSkillSlugs),
 		...renderRuleSkills(ir.rules, usedSkillSlugs),
-		...ir.agents.map(renderAgentMetadata),
+		...ir.agents.map((agent) => renderAgentMetadata(agent, ir.instructions)),
 		...renderHookMetadata(ir.hooks),
 		...renderHookRuntime(ir),
 		...renderMcpEvidence(ir.tools),
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			"",
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: "",
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [agent.id, agentPath(agent)]),
+		),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -411,7 +431,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -426,11 +446,18 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -524,19 +551,33 @@ function renderRuleSkills(
 		});
 }
 
-function renderAgentMetadata(agent: AgentDefinition): RenderedFile {
+function renderAgentMetadata(
+	agent: AgentDefinition,
+	instructions: InstructionModule[],
+): RenderedFile {
+	const instruction = findInstruction(agent.instructions.id, instructions);
+
 	return jsonFile(
-		`.oiap/agents/${slug(agent.id)}.json`,
+		agentPath(agent),
 		{
 			id: agent.id,
 			name: agent.name,
 			description: agent.description,
 			model: agent.model,
 			tools: agent.tools,
+			access: agent.access,
+			...targetMetadata(agent.targetMetadata),
+			instructions: instruction
+				? instructionBody(instruction)
+				: `Agent instruction reference not found: ${agent.instructions.id}`,
 			degradation: "OpenClaw custom agent lowering is not implemented yet.",
 		},
 		sourceRef(agent.id, "agent"),
 	);
+}
+
+function agentPath(agent: AgentDefinition): string {
+	return `.oiap/agents/${slug(agent.id)}.json`;
 }
 
 function renderHookMetadata(hooks: HookDefinition[]): RenderedFile[] {
@@ -613,7 +654,8 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `package.json`: package metadata and `openclaw.extensions` entrypoint declaration.",
 		"- `openclaw.plugin.json`: native OpenClaw discovery manifest.",
 		"- `index.ts`: generated OpenClaw plugin entrypoint.",
-		"- `skills/`: generated AgentSkills-compatible skill folders.",
+		"- `skills/`: generated AgentSkills-compatible skill folders, with any files shipped beside each SKILL.md.",
+		"- Plugin resources, when present, are written at their declared paths relative to the plugin root.",
 		"- `.openclaw/`: generated MCP and policy evidence that is not loaded directly by native OpenClaw plugins yet.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"## Current Limitations",
@@ -626,6 +668,12 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		sourceRef(manifest.id, "readme"),
 	);
 }
+
+const BUNDLE_FILE_SUPPORT = {
+	target: OPENCLAW_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -676,7 +724,14 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+		...agentAccessDegradation(
+			OPENCLAW_TARGET,
+			ir.agents,
+			"OpenClaw plugins cannot ship agents (agents and their tools.allow/deny live in the user's openclaw.json), so this exporter writes agents as .oiap metadata only.",
+		),
+	];
 
 	if (ir.commands.length > 0) {
 		degradations.push({
@@ -786,7 +841,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -817,21 +874,11 @@ function collectIssues(
 }
 
 function validateOpenClawBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
-
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `OpenClaw bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	for (const requiredPath of [
 		"package.json",
@@ -1129,7 +1176,10 @@ function formatFrontmatterValue(value: unknown): string {
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[OPENCLAW_TARGET] ?? {};
 }

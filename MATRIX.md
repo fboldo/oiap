@@ -9,7 +9,7 @@ The matrix is about export support. It does not describe installing bundles into
 a user's live agent environment. OIAP generates target bundles, profiles,
 reports, and adapter code; adoption remains a host or user workflow.
 
-Last reviewed: 2026-05-20.
+Last reviewed: 2026-11-20.
 
 Use the [OIAP Platform Matrix Refresh](.agents/skills/oiap-platform-matrix-refresh/SKILL.md)
 skill when refreshing this document from current platform docs.
@@ -41,7 +41,7 @@ canonical repository, or vendor-owned release note is found.
 | Codex | <https://developers.openai.com/codex> | official docs | Verify plugins, skills, AGENTS.md, hooks, MCP, subagents, rules, approvals, and sandbox settings. |
 | Cline | <https://docs.cline.bot/> | official docs | Verify project config pages for rules, skills, hooks, agents, plugins, MCP, and canonical `cline/cline` repository parser behavior. |
 | OpenCode | <https://opencode.ai/docs> | official docs | Verify the JavaScript extension API and hook/event surfaces. |
-| GitHub Copilot CLI | <https://docs.github.com/en/copilot> | official docs | Verify whether CLI-specific extension surfaces still exist and are current. |
+| GitHub Copilot CLI | <https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference> | official docs | Also verify the hooks reference, custom agents configuration, and the `github/copilot-cli` changelog, which is the only source for command files and plugin hook environment variables. |
 | VS Code Copilot Chat | <https://code.visualstudio.com/docs/copilot/overview> | official docs | Also verify customization docs for skills, prompts, instructions, agents, hooks, and MCP. |
 | Aider | <https://aider.chat/docs/> | official docs | Verify configuration, slash commands, watch mode, and MCP status. |
 | OpenClaw | <https://docs.openclaw.ai/plugins/building-plugins> | official docs | Verify native plugin manifests, package metadata, skills, tools, commands, hooks, and bundle compatibility. |
@@ -54,6 +54,7 @@ canonical repository, or vendor-owned release note is found.
 | Kiro IDE/CLI | Needs verified official source | needs verification | Confirm Agent Skills, steering, hooks, MCP, specs, and policy controls from official docs. |
 | Pi coding agent | Needs verified official source | needs verification | Keep as thin target until official extension surfaces are verified. |
 | Cursor | <https://cursor.com/docs> | official docs | Verify plugins, rules, skills, commands, agents, hooks, MCP, and nested agent guidance. |
+| Windsurf (Devin Desktop) | <https://docs.devin.ai/> (`docs.windsurf.com` redirects there) | official docs | Verify rules, skills, subagents, hooks (`.devin/hooks.v1.json`), MCP, and whether Devin Desktop reads `.devin/agents/`. Cascade workflows are not supported by Devin Local. |
 | Google Antigravity | <https://antigravity.google/docs> | official docs | Verify feature pages for workspace rules, workflows, Agent Skills, MCP, permissions, strict mode, task groups, and browser subagent behavior. |
 
 ## Capability Matrix
@@ -64,7 +65,7 @@ canonical repository, or vendor-owned release note is found.
 | Codex | core | Y | Y | Y | P | Y | Y | Y | F | Y | `packages/exporter-codex` |
 | Cline | core | P | Y | P | F | Y | P | Y | R | P | `packages/exporter-cline` |
 | OpenCode | bridge | P | Y | Y | Y | P | Y | Y | R | P | `packages/exporter-opencode` |
-| GitHub Copilot CLI | thin | ? | P | ? | P | N | N | ? | F | N | `packages/exporter-github-copilot-cli` |
+| GitHub Copilot CLI | core | Y | F | Y | P | P | Y | Y | R | P | `packages/exporter-github-copilot-cli` |
 | VS Code Copilot Chat | editor | Y | F | Y | Y | P | Y | Y | P | P | `packages/exporter-vscode-copilot` |
 | Aider | workflow | N | P | N | P | P | N | ? | F | P | `packages/exporter-aider` |
 | OpenClaw | core | Y | F | Y | P | Y | P | P | F | P | `packages/exporter-openclaw` |
@@ -78,15 +79,18 @@ canonical repository, or vendor-owned release note is found.
 | Pi coding agent | thin | ? | F | F | F | ? | ? | ? | F | ? | `packages/exporter-pi` |
 | Cursor | editor | Y | Y | Y | Y | Y | Y | Y | P | P | `packages/exporter-cursor` |
 | Google Antigravity | core | F | Y | Y | P | N | P | Y | F | P | `packages/exporter-antigravity` |
+| Windsurf (Devin Desktop) | workspace | F | Y | Y | F | P | P | Y | R | P | `packages/exporter-windsurf` |
 
 ## Adapter Status
 
 The repository now contains initial Antigravity, Claude Code, Cline, Codex,
-Cursor, Gemini CLI, OpenClaw, OpenCode, and VS Code Copilot exporter packages at
-`packages/exporter-antigravity`, `packages/exporter-claude-code`,
-`packages/exporter-cline`, `packages/exporter-codex`, `packages/exporter-cursor`,
-`packages/exporter-gemini-cli`, `packages/exporter-openclaw`,
-`packages/exporter-opencode`, and `packages/exporter-vscode-copilot`. Other
+Cursor, Gemini CLI, GitHub Copilot CLI, OpenClaw, OpenCode, VS Code Copilot, and
+Windsurf exporter packages at `packages/exporter-antigravity`,
+`packages/exporter-claude-code`, `packages/exporter-cline`,
+`packages/exporter-codex`, `packages/exporter-cursor`,
+`packages/exporter-gemini-cli`, `packages/exporter-github-copilot-cli`,
+`packages/exporter-openclaw`, `packages/exporter-opencode`,
+`packages/exporter-vscode-copilot`, and `packages/exporter-windsurf`. Other
 adapter paths in the matrix remain proposed package locations until implemented.
 
 When adapter packages are added, each target should expose:
@@ -148,16 +152,23 @@ supported hook events.
 
 ### GitHub Copilot CLI
 
-Thin target until current extension surfaces are verified. Avoid assuming hooks,
-MCP, or subagents without current official evidence.
+Native plugin target. OIAP exports a legacy-format root `plugin.json` with
+`skills/`, `commands/`, `agents/*.agent.md`, `hooks.json` (version 1, camelCase
+events) and `.mcp.json`. Plugin hooks run from the project root and receive
+`PLUGIN_ROOT` as an environment variable (changelog 1.0.26 and 1.0.88), so
+hook commands locate the runner through it, and the runner writes Copilot CLI
+hook output fields. Read-only agents use the `read` and `search` tool aliases.
+Rules fall back to model-invoked skills; command files are documented only in
+the changelog. Copilot CLI manages its own install directory, so the profile
+defines no install path: build with `--out` and run `copilot plugin install`.
 
 ### VS Code Copilot Chat
 
 Editor plugin target. VS Code Copilot agent plugins use root `plugin.json`,
 Agent Skills folders, prompt-file slash commands, `.agent.md` custom agents,
-root `hooks.json`, and root `.mcp.json`. Copilot-format plugins do not define a
-plugin-root token, so generated hook runtime commands are plugin-relative and
-reported as degraded until conformance probes confirm host path behavior.
+root `hooks.json`, and root `.mcp.json`. Copilot-format plugins expand
+`${PLUGIN_ROOT}` in hook commands and MCP configuration, so generated hook
+runtime commands locate the runner through it.
 
 ### Aider
 
@@ -239,6 +250,18 @@ OIAP exports bundle artifacts for the documented file formats and records
 degradations for the missing native plugin manifest, hook configuration, custom
 agent files, workflow directory schema, and project-local permission file path.
 
+### Windsurf (Devin Desktop)
+
+Workspace target. Windsurf was renamed Devin Desktop, and new conversations use
+Devin Local instead of Cascade. OIAP exports `.windsurf/rules/` with
+`trigger` frontmatter, `AGENTS.md`, `.windsurf/skills/`, `.devin/agents/`
+subagents, `.devin/hooks.v1.json` with a bridge script, and
+`.devin/mcp_config.json`. Commands and workflows become user-invoked skills
+because Devin Local does not support Cascade workflows. Subagent files are
+documented for Devin CLI; Devin Desktop support is unverified. Windsurf has no
+plugin directory, so install paths are staging folders whose contents are
+copied into the workspace.
+
 ## Refresh Checklist
 
 When refreshing the matrix:
@@ -265,5 +288,8 @@ validation.
 | 2026-05-19 | Gemini CLI | Initial exporter package | Gemini CLI extension renderer and generated raw-JS hook runtime exist for documented extension component folders | Add Gemini CLI extension validation probes for `gemini-extension.json`, commands, context files, skills, agents, hooks, MCP, and policies |
 | 2026-05-15 | OpenClaw | Initial exporter package | Native package renderer and generated raw-JS hook runtime exist; command lowering, MCP bridge, policy enforcement, and tool runtime remain pending | Add OpenClaw manifest/plugin validation probes when CLI is available |
 | 2026-05-19 | OpenCode | Initial exporter package | Project config renderer, skills, commands, agents, MCP config, permission config, and generated TypeScript hook bridge exist | Add OpenCode conformance probes for `opencode.json`, `.opencode/*` discovery, plugin hook events, MCP config, and permission behavior |
-| 2026-05-15 | VS Code Copilot Chat | Initial exporter package | Copilot-format plugin renderer and generated raw-JS hook runtime exist; hook runner paths are plugin-relative because Copilot format has no root token | Add VS Code plugin diagnostics/conformance probes for root `plugin.json`, prompt commands, skills, agents, hooks, and MCP |
+| 2026-05-15 | VS Code Copilot Chat | Initial exporter package | Copilot-format plugin renderer and generated raw-JS hook runtime exist | Add VS Code plugin diagnostics/conformance probes for root `plugin.json`, prompt commands, skills, agents, hooks, and MCP |
+| 2026-11-20 | VS Code Copilot Chat, Cursor | Hook runner paths | Hook commands used plugin-relative runner paths, which break when hooks run from the workspace; they now use `${PLUGIN_ROOT}` (VS Code) and `$CURSOR_PLUGIN_ROOT` for Cursor `stop`/`subagentStop` | Probe hook execution in an installed plugin on each host |
+| 2026-11-20 | GitHub Copilot CLI | Initial exporter package | Legacy-format plugin renderer, Copilot CLI hook output mapping in the runtime, and read-only agent mapping exist | Probe `copilot plugin install`, command files, hook env vars and outputs, and agent tool aliases |
+| 2026-11-20 | Windsurf | Initial exporter package | Workspace renderer for rules, skills, Devin subagents, hooks bridge, and MCP config exist | Confirm Devin Desktop reads `.devin/agents/` and the hook working directory; consider a separate `devin` plugin target (`.devin-plugin/plugin.json`) |
 | 2026-05-15 | all remaining targets | Initial planned matrix | No adapter packages yet | Create exporters from highest-fidelity targets first |

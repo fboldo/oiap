@@ -7,7 +7,12 @@
 		"defaultBranch": "main"
 	},
 	"files": {
-		"ignoreUnknown": false
+		"ignoreUnknown": false,
+		"includes": [
+			"**",
+			"!examples/elephant-goldfish-model/source",
+			"!lerna.json"
+		]
 	},
 	"formatter": {
 		"enabled": true,

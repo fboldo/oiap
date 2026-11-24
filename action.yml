@@ -1,0 +1,97 @@
+name: OIAP plugin check
+description: >-
+  Check that the agent plugin files committed by `oiap sync` match the OIAP
+  plugin definition, and that every target can be exported.
+author: OIAP
+branding:
+  icon: check-circle
+  color: blue
+
+inputs:
+  plugin:
+    description: Path to the OIAP plugin file, relative to working-directory.
+    default: oiap.plugin.ts
+  layout:
+    description: "Repository layout used by `oiap sync`: root or plugins."
+    default: root
+  targets:
+    description: Comma-separated targets. Defaults to the manifest's supportedTargets.
+    default: ""
+  working-directory:
+    description: Repository directory that holds the plugin file and its generated files.
+    default: .
+  oiap-version:
+    description: >-
+      @oiap/cli version. Defaults to the version matching this action's tag
+      (vX.Y.Z), or latest when the action is not used from a release tag.
+    default: ""
+  install-dependencies:
+    description: Run `bun install` first when the directory has a package.json.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+
+    - name: Install plugin dependencies
+      if: ${{ inputs.install-dependencies == 'true' && hashFiles(format('{0}/package.json', inputs.working-directory)) != '' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: bun install
+
+    - name: Check generated plugin files
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        OIAP_PLUGIN: ${{ inputs.plugin }}
+        OIAP_LAYOUT: ${{ inputs.layout }}
+        OIAP_TARGETS: ${{ inputs.targets }}
+        OIAP_VERSION: ${{ inputs.oiap-version }}
+        OIAP_ACTION_REF: ${{ github.action_ref }}
+      run: |
+        version="$OIAP_VERSION"
+        if [ -z "$version" ]; then
+          if [[ "$OIAP_ACTION_REF" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            version="${BASH_REMATCH[1]}"
+          else
+            version="latest"
+          fi
+        fi
+
+        args=(sync "$OIAP_PLUGIN" --check --layout "$OIAP_LAYOUT" --json)
+        if [ -n "$OIAP_TARGETS" ]; then
+          args+=(--target "$OIAP_TARGETS")
+        fi
+
+        status=0
+        bunx "@oiap/cli@$version" "${args[@]}" > "$RUNNER_TEMP/oiap-sync.json" || status=$?
+
+        bun -e '
+          const fs = require("node:fs");
+          const raw = fs.readFileSync(process.argv[1], "utf8");
+          let result;
+          try { result = JSON.parse(raw); } catch { console.log(raw); process.exit(0); }
+          const lines = ["## OIAP plugin check", "", "| Target | Location | Status |", "| --- | --- | --- |"];
+          for (const p of result.placements) {
+            lines.push(`| ${p.target} | ${p.directory || "repository root"} | ${p.status} |`);
+            for (const issue of p.issues) {
+              const level = issue.severity === "error" ? "error" : issue.severity === "warning" ? "warning" : "notice";
+              console.log(`::${level} title=OIAP ${p.target}::${issue.message}`);
+            }
+          }
+          for (const error of result.errors) console.log(`::error title=OIAP sync::${error}`);
+          for (const note of result.notes) lines.push("", `> ${note}`);
+          if (result.differences.length > 0) {
+            lines.push("", "Generated plugin files are out of date. Run `oiap sync` and commit the result:", "");
+            for (const d of result.differences) lines.push(`- ${d.kind}: \`${d.path}\``);
+            console.log(`::error title=OIAP sync::${result.differences.length} generated file(s) are out of date. Run oiap sync and commit the result.`);
+          } else {
+            lines.push("", "Generated plugin files are up to date.");
+          }
+          const summary = lines.join("\n") + "\n";
+          console.log(summary);
+          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+        ' "$RUNNER_TEMP/oiap-sync.json"
+
+        exit "$status"

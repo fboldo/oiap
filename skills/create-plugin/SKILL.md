@@ -21,8 +21,9 @@ Start by identifying the plugin shape the user wants:
   `openclaw`, `vscode-copilot-chat`, or `antigravity`?
 - Does the plugin need commands, always-on instructions, skills, hooks, agents,
   MCP tools, executable recipes, or policies?
-- Should generated bundles be committed, published, or only built locally for
-  review?
+- How will users install it: with each host's own git install (commit host
+  files with `oiap sync`), with `install-agent-plugin`, or both? See
+  [Ship the Plugin](#ship-the-plugin).
 
 If the request is already clear, do not over-interview. Scaffold the smallest
 useful plugin and explain where to extend it.
@@ -75,9 +76,8 @@ OIAP itself.
   or verify.
 - Include policies when hooks, tools, scripts, network access, file writes,
   secrets, or destructive actions are involved.
-- Build target bundles into `dist/` and tell the user that OIAP generates
-  artifacts; installing those artifacts into a host is handled by the host or the
-  user's own workflow.
+- Build target bundles into `dist/` for review. Don't commit `dist/`; commit the
+  files `oiap sync` writes instead.
 
 ## Project Shape
 
@@ -112,6 +112,29 @@ policies/     Permission and safety policy helpers
 5. Build at least one requested target with `npx oiap build`.
 6. Review generated capability reports and mention any degraded or unsupported
    capabilities.
+7. Set up shipping: run `npx oiap sync` and add the GitHub Action, document
+   `install-agent-plugin` for project-local hosts, or both.
+
+## Ship the Plugin
+
+OIAP supports two ways to get a plugin to users. Most plugins use both.
+
+1. **Commit host files with `oiap sync`.** For hosts that install from git
+   (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, VS Code
+   Copilot, Antigravity, OpenClaw). Run `npx oiap sync`, commit the generated
+   files and `.oiap/sync.json`, and add a pull-request workflow that uses the
+   OIAP GitHub Action (`uses: fboldo/oiap@<version>`), which runs
+   `oiap sync --check`. Users then install with each host's own command, such as
+   `claude plugin marketplace add owner/repo`.
+2. **Build at install time with `install-agent-plugin`.** For hosts that read
+   files from the user's project (Cline, Windsurf, OpenCode), or to install into
+   a specific project or user directory. Document
+   `npx install-agent-plugin owner/repo --plugin <id> --agent <target>`. To offer
+   your own install command, call `installPlugin()` from `@oiap/core` in a small
+   CLI.
+
+Bump `manifest.version` on each release: several hosts only update installed
+plugins when it changes.
 
 ## Primitive Selection
 

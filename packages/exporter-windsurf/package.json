@@ -1,0 +1,42 @@
+{
+	"name": "@oiap/exporter-windsurf",
+	"version": "0.3.0",
+	"type": "module",
+	"description": "Windsurf (Devin Desktop) target exporter for Open Interoperable Agent Plugins.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fboldo/oiap.git",
+		"directory": "packages/exporter-windsurf"
+	},
+	"homepage": "https://github.com/fboldo/oiap#readme",
+	"bugs": {
+		"url": "https://github.com/fboldo/oiap/issues"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"check": "bun run typecheck",
+		"test": "bun test src",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@oiap/core": "workspace:*",
+		"@oiap/runtime": "workspace:*"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}

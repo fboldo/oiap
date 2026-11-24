@@ -22,7 +22,15 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeCommand,
 	renderHookRuntimeFiles,
@@ -124,8 +132,8 @@ function renderCursorFiles(ir: PluginIr): RenderedFile[] {
 	const usedRulePaths = new Set<string>();
 	const usedSkillSlugs = new Set<string>();
 	const usedCommandSlugs = new Set<string>();
-	const usedAgentSlugs = new Set<string>();
-	const pluginFiles = [
+	const agentSlugs = reserveAgentSlugs(ir.agents);
+	const generatedFiles = [
 		renderPluginManifest(ir),
 		...renderProjectRuleFiles(ir.rules, usedRulePaths),
 		...renderInstructionRules(ir, usedRulePaths),
@@ -136,13 +144,24 @@ function renderCursorFiles(ir: PluginIr): RenderedFile[] {
 			ir.instructions,
 			usedCommandSlugs,
 		),
-		...renderAgents(ir.agents, ir.instructions, usedAgentSlugs),
+		...renderAgents(ir.agents, ir.instructions, agentSlugs),
 		...renderHookFiles(ir),
 		...renderMcpFiles(ir.tools),
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: RESOURCE_ROOT,
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [agent.id, agentPath(agentSlugs, agent)]),
+		),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -252,7 +271,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -267,11 +286,18 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -319,11 +345,11 @@ function renderCommands(
 function renderAgents(
 	agents: AgentDefinition[],
 	instructions: InstructionModule[],
-	usedAgentSlugs: Set<string>,
+	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
 		const instruction = findInstruction(agent.instructions.id, instructions);
-		const agentSlug = reserveSlug(agent.id, usedAgentSlugs, "agent");
+		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
 		const body = [
 			agent.name === agentSlug ? undefined : `# ${agent.name}`,
 			instruction
@@ -337,16 +363,36 @@ function renderAgents(
 			{
 				name: agentSlug,
 				description: agent.description,
+				readonly: agent.access === "read-only" ? true : undefined,
+				...targetMetadata(agent.targetMetadata),
 			},
 			body,
 		);
 
 		return textFile(
-			`agents/${agentSlug}.md`,
+			agentPath(agentSlugs, agent),
 			content,
 			sourceRef(agent.id, "agent"),
 		);
 	});
+}
+
+function reserveAgentSlugs(agents: AgentDefinition[]): Map<string, string> {
+	const usedAgentSlugs = new Set<string>();
+
+	return new Map(
+		agents.map((agent) => [
+			agent.id,
+			reserveSlug(agent.id, usedAgentSlugs, "agent"),
+		]),
+	);
+}
+
+function agentPath(
+	agentSlugs: Map<string, string>,
+	agent: AgentDefinition,
+): string {
+	return `agents/${agentSlugs.get(agent.id) ?? slug(agent.id, "agent")}.md`;
 }
 
 function renderAgentMetadata(agent: AgentDefinition): string | undefined {
@@ -387,12 +433,15 @@ function renderHooksConfig(hooks: HookDefinition[]): RenderedFile {
 		}
 
 		const eventHooks = groupedHooks[event] ?? [];
+		const runtimeRoot = runsFromWorkspaceRoot(event)
+			? "$CURSOR_PLUGIN_ROOT/.oiap/runtime"
+			: ".oiap/runtime";
 		eventHooks.push(
 			omitUndefined({
 				type: "command",
 				command: renderHookRuntimeCommand({
-					runnerPath: ".oiap/runtime/runner.mjs",
-					manifestPath: ".oiap/runtime/manifest.json",
+					runnerPath: `${runtimeRoot}/runner.mjs`,
+					manifestPath: `${runtimeRoot}/manifest.json`,
 					target: CURSOR_TARGET,
 					event: hook.event,
 					hookId: hook.id,
@@ -427,7 +476,7 @@ function renderHookMetadata(hook: HookDefinition): RenderedFile {
 			runtime: {
 				status: "generated-js-runner",
 				message:
-					"Cursor hook config calls the generated OIAP raw-JS hook runner with plugin-relative paths.",
+					"Cursor hook config calls the generated OIAP raw-JS hook runner from the plugin directory; stop and subagentStop hooks use $CURSOR_PLUGIN_ROOT.",
 			},
 		},
 		sourceRef(hook.id, "hook"),
@@ -512,6 +561,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `hooks/hooks.json`: generated Cursor hook configuration, when present.",
 		"- `mcp.json`: generated MCP server configuration, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
+		"- Skill files sit beside each `SKILL.md`; plugin resources are written at the plugin root, when present.",
 		"## Current Limitations",
 		"Permission policies are emitted as evidence until policy-specific Cursor hook lowering is implemented. Supported portable hook functions are emitted as a generated raw-JS OIAP runtime; unsupported OIAP hook lifecycles remain degraded.",
 	];
@@ -522,6 +572,15 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		sourceRef(manifest.id, "readme"),
 	);
 }
+
+/** Cursor plugins install as a directory, so resources live at the plugin root. */
+const RESOURCE_ROOT = "";
+
+const BUNDLE_FILE_SUPPORT = {
+	target: CURSOR_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -583,10 +642,31 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 	return capabilities;
 }
 
+// Cursor runs plugin hooks from the plugin directory, except these, which run
+// from the workspace root: https://cursor.com/docs/agent/hooks
+function runsFromWorkspaceRoot(event: string): boolean {
+	return event === "stop" || event === "subagentStop";
+}
+
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+	];
 	const supportedHooks = supportedCursorHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
+	const workspaceRootHooks = supportedHooks.filter((hook) => {
+		const event = toCursorHookEvent(hook.event);
+		return event ? runsFromWorkspaceRoot(event) : false;
+	});
+
+	if (workspaceRootHooks.length > 0) {
+		degradations.push({
+			capability: { kind: "hooks", target: CURSOR_TARGET },
+			from: "plugin-directory-command",
+			to: "posix-environment-variable-command",
+			reason: `${workspaceRootHooks.length} stop/subagentStop hook(s) run from the workspace root, so their commands locate the runner through $CURSOR_PLUGIN_ROOT, which needs a POSIX shell.`,
+		});
+	}
 
 	if (nonPortableHookIds.length > 0) {
 		degradations.push({
@@ -664,7 +744,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -695,21 +777,11 @@ function collectIssues(
 }
 
 function validateCursorBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
-
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `Cursor bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	if (!filePaths.has(".cursor-plugin/plugin.json")) {
 		issues.push({
@@ -983,7 +1055,10 @@ function withFrontmatter(
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[CURSOR_TARGET] ?? {};
 }

@@ -22,7 +22,15 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeCommand,
 	renderHookRuntimeFiles,
@@ -124,7 +132,7 @@ function isPluginIr(plugin: VsCodeCopilotPluginInput): plugin is PluginIr {
 
 function renderVsCodeCopilotFiles(ir: PluginIr): RenderedFile[] {
 	const usedSkillSlugs = new Set<string>();
-	const pluginFiles = [
+	const generatedFiles = [
 		renderPluginManifest(ir),
 		...renderSkills(ir.skills, ir.instructions, usedSkillSlugs),
 		...renderInstructionSkills(ir, usedSkillSlugs),
@@ -136,7 +144,20 @@ function renderVsCodeCopilotFiles(ir: PluginIr): RenderedFile[] {
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	// Copilot-format plugins expand ${PLUGIN_ROOT} only in hook commands and MCP
+	// config, not in skill or agent text, so bundle paths stay file-relative.
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: RESOURCE_ROOT,
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [agent.id, agentPath(agent)]),
+		),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -191,7 +212,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -206,11 +227,18 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -316,16 +344,29 @@ function renderAgent(
 			name: agent.name,
 			description: agent.description,
 			model: agent.model,
-			tools: agent.tools?.map((tool) => tool.id),
+			tools: agentTools(agent),
+			...targetMetadata(agent.targetMetadata),
 		},
 		body,
 	);
 
-	return textFile(
-		`agents/${slug(agent.id, "agent")}.agent.md`,
-		content,
-		sourceRef(agent.id, "agent"),
-	);
+	return textFile(agentPath(agent), content, sourceRef(agent.id, "agent"));
+}
+
+function agentPath(agent: AgentDefinition): string {
+	return `agents/${slug(agent.id, "agent")}.agent.md`;
+}
+
+// Copilot custom agent tool aliases for reading and searching the workspace.
+// https://code.visualstudio.com/docs/agents/reference/custom-agent-file-reference
+const READ_ONLY_TOOLS = ["read", "search"];
+
+function agentTools(agent: AgentDefinition): string[] | undefined {
+	if (agent.tools) {
+		return agent.tools.map((tool) => tool.id);
+	}
+
+	return agent.access === "read-only" ? READ_ONLY_TOOLS : undefined;
 }
 
 function renderHookFiles(ir: PluginIr): RenderedFile[] {
@@ -342,6 +383,10 @@ function renderHookFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// Copilot-format plugins expand this in hook commands and MCP configuration:
+// https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference
+const PLUGIN_ROOT = "$" + "{PLUGIN_ROOT}";
+
 function renderHooksConfig(hooks: HookDefinition[]): RenderedFile {
 	const groupedHooks: Record<string, unknown[]> = {};
 
@@ -355,8 +400,8 @@ function renderHooksConfig(hooks: HookDefinition[]): RenderedFile {
 		const commandHook = omitUndefined({
 			type: "command",
 			command: renderHookRuntimeCommand({
-				runnerPath: ".oiap/runtime/runner.mjs",
-				manifestPath: ".oiap/runtime/manifest.json",
+				runnerPath: `${PLUGIN_ROOT}/.oiap/runtime/runner.mjs`,
+				manifestPath: `${PLUGIN_ROOT}/.oiap/runtime/manifest.json`,
 				target: VSCODE_COPILOT_TARGET,
 				event: hook.event,
 				hookId: hook.id,
@@ -397,7 +442,7 @@ function renderHookMetadata(hook: HookDefinition): RenderedFile {
 			runtime: {
 				status: "generated-js-runner",
 				message:
-					"VS Code Copilot hook config calls the generated OIAP raw-JS hook runner with plugin-relative paths.",
+					"VS Code Copilot hook config calls the generated OIAP raw-JS hook runner through the PLUGIN_ROOT token.",
 			},
 		},
 		sourceRef(hook.id, "hook"),
@@ -486,9 +531,10 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `agents/`: generated `.agent.md` custom agents, when present.",
 		"- `hooks.json`: generated hook configuration, when present.",
 		"- `.mcp.json`: generated MCP server configuration, when present.",
+		"- Plugin resources and skill files: written at the plugin root and beside each SKILL.md, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"## Current Limitations",
-		"Copilot-format plugins do not define an official plugin-root token, so generated hook commands use plugin-relative `.oiap/runtime` paths and are reported as degraded. OIAP rules and always-on instructions are represented as model-invoked skills because plugin-scoped custom instruction files are not documented for this format.",
+		`Generated hook commands locate the bundled runner through \`${PLUGIN_ROOT}\`, which Copilot-format plugins expand in hook commands. OIAP rules and always-on instructions are represented as model-invoked skills because plugin-scoped custom instruction files are not documented for this format.`,
 	];
 
 	return textFile(
@@ -497,6 +543,14 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		sourceRef(manifest.id, "readme"),
 	);
 }
+
+const RESOURCE_ROOT = "";
+
+const BUNDLE_FILE_SUPPORT = {
+	target: VSCODE_COPILOT_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -555,7 +609,9 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+	];
 	const ruleCount = ir.rules.filter(
 		(rule) => rule.target === VSCODE_COPILOT_TARGET,
 	).length;
@@ -572,16 +628,6 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 
 	const supportedHooks = supportedVsCodeHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
-
-	if (supportedHooks.length > 0) {
-		degradations.push({
-			capability: { kind: "hooks", target: VSCODE_COPILOT_TARGET },
-			from: "plugin-root-token-command",
-			to: "plugin-relative-command",
-			reason:
-				"Copilot-format plugins do not define an official plugin-root token, so generated hook commands reference the bundled runner with plugin-relative paths.",
-		});
-	}
 
 	if (nonPortableHookIds.length > 0) {
 		degradations.push({
@@ -650,7 +696,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -681,21 +729,11 @@ function collectIssues(
 }
 
 function validateVsCodeCopilotBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
-
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `VS Code Copilot bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	if (!filePaths.has("plugin.json")) {
 		issues.push({
@@ -883,7 +921,10 @@ function withFrontmatter(
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[VSCODE_COPILOT_TARGET] ?? {};
 }

@@ -16,12 +16,17 @@ import { CLINE_TARGET, exportCline } from "@oiap/exporter-cline";
 import { CODEX_TARGET, exportCodex } from "@oiap/exporter-codex";
 import { CURSOR_TARGET, exportCursor } from "@oiap/exporter-cursor";
 import { exportGeminiCli, GEMINI_CLI_TARGET } from "@oiap/exporter-gemini-cli";
+import {
+	exportGitHubCopilotCli,
+	GITHUB_COPILOT_CLI_TARGET,
+} from "@oiap/exporter-github-copilot-cli";
 import { exportOpenClaw, OPENCLAW_TARGET } from "@oiap/exporter-openclaw";
 import { exportOpenCode, OPENCODE_TARGET } from "@oiap/exporter-opencode";
 import {
 	exportVsCodeCopilot,
 	VSCODE_COPILOT_TARGET,
 } from "@oiap/exporter-vscode-copilot";
+import { exportWindsurf, WINDSURF_TARGET } from "@oiap/exporter-windsurf";
 
 export type CliPluginInput = PluginDefinition | PluginIr;
 
@@ -62,6 +67,11 @@ export const exporterRegistry = {
 		packageName: "@oiap/exporter-gemini-cli",
 		exportBundle: exportGeminiCli,
 	},
+	[GITHUB_COPILOT_CLI_TARGET]: {
+		target: GITHUB_COPILOT_CLI_TARGET,
+		packageName: "@oiap/exporter-github-copilot-cli",
+		exportBundle: exportGitHubCopilotCli,
+	},
 	[OPENCLAW_TARGET]: {
 		target: OPENCLAW_TARGET,
 		packageName: "@oiap/exporter-openclaw",
@@ -76,6 +86,11 @@ export const exporterRegistry = {
 		target: VSCODE_COPILOT_TARGET,
 		packageName: "@oiap/exporter-vscode-copilot",
 		exportBundle: exportVsCodeCopilot,
+	},
+	[WINDSURF_TARGET]: {
+		target: WINDSURF_TARGET,
+		packageName: "@oiap/exporter-windsurf",
+		exportBundle: exportWindsurf,
 	},
 } satisfies Record<string, RegisteredExporter>;
 

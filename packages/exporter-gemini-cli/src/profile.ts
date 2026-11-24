@@ -11,6 +11,19 @@ export const geminiCliProfile = defineHostProfile({
 		notes:
 			"Exports a Gemini CLI extension directory with root gemini-extension.json.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "native",
+		notes:
+			"Local installs use project .gemini/extensions; global installs use ~/.gemini/extensions.",
+		paths: {
+			local: { base: "cwd", segments: [".gemini", "extensions", "{pluginId}"] },
+			global: {
+				base: "home",
+				segments: [".gemini", "extensions", "{pluginId}"],
+			},
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

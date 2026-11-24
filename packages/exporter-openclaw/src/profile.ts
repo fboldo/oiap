@@ -11,6 +11,19 @@ export const openClawProfile = defineHostProfile({
 		notes:
 			"Exports a native OpenClaw plugin package with package.json and openclaw.plugin.json.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "native",
+		notes:
+			"Local installs use project .openclaw/plugins; global installs use ~/.openclaw/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".openclaw", "plugins", "{pluginId}"] },
+			global: {
+				base: "home",
+				segments: [".openclaw", "plugins", "{pluginId}"],
+			},
+		},
+	},
 	skillSupport: {
 		supported: true,
 		fidelity: "native",

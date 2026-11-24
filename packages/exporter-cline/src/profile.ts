@@ -11,6 +11,16 @@ export const clineProfile = defineHostProfile({
 		notes:
 			"Exports project-local .cline and .clinerules assets plus an OIAP target manifest; Cline SDK plugin packaging is not generated yet.",
 	},
+	installSupport: {
+		supported: true,
+		fidelity: "partial",
+		notes:
+			"Local installs use project .cline/plugins; global installs use ~/.cline/plugins.",
+		paths: {
+			local: { base: "cwd", segments: [".cline", "plugins", "{pluginId}"] },
+			global: { base: "home", segments: [".cline", "plugins", "{pluginId}"] },
+		},
+	},
 	ruleSupport: {
 		supported: true,
 		fidelity: "native",
