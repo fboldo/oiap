@@ -44,6 +44,8 @@ export interface HookDefinition<
 	kind: "oiap.hook";
 	id: TId;
 	event: E;
+	/** Limit this hook to these targets; omitted means every target. */
+	targets?: string[];
 	handler: HookHandler<E>;
 	match?: HookMatcher<E>;
 	timeoutMs?: number;

@@ -87,12 +87,36 @@ export interface PluginManifest {
 	logo?: string;
 	/** Publisher, used for marketplace owners and manifest authors. */
 	author?: PluginAuthor;
+	/** Marketplace catalog settings for `oiap sync`. */
+	marketplace?: MarketplaceSettings;
+	/**
+	 * Extra fields merged into each host's manifest, such as Codex `interface`
+	 * extras or Claude `userConfig`. Objects merge deeply; `null` removes a
+	 * generated field (for example `{ "claude-code": { version: null } }`).
+	 */
+	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 	/** Source repository URL. */
 	repository?: string;
 	categories: string[];
 	requiredCapabilities?: HostCapability[];
 	optionalCapabilities?: HostCapability[];
 	supportedTargets: TargetId[];
+}
+
+export interface MarketplaceSettings {
+	/** Catalog name users install from, as in `plugin@<name>`. Defaults to the plugin id. */
+	name?: string;
+	owner?: PluginAuthor;
+	description?: string;
+	/** Extra fields for this plugin's catalog entry, for every host. */
+	entry?: Record<string, unknown>;
+	/** Per-host extra fields: `catalog` merges into the catalog, `entry` into the entry. */
+	targetMetadata?: Partial<
+		Record<
+			TargetId,
+			{ catalog?: Record<string, unknown>; entry?: Record<string, unknown> }
+		>
+	>;
 }
 
 export interface PluginAuthor {
@@ -119,6 +143,8 @@ export type InstructionPurpose =
 	| "agent";
 
 export interface InstructionModule {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	purpose: InstructionPurpose;
 	triggers: string[];
@@ -128,6 +154,8 @@ export interface InstructionModule {
 }
 
 export interface CommandAsset {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	invocation: InvocationRef;
 	prompt?: InstructionModuleRef;
@@ -137,6 +165,8 @@ export interface CommandAsset {
 }
 
 export interface Workflow {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	title: string;
 	activation: Activation;
@@ -212,6 +242,8 @@ export interface Artifact {
 }
 
 export interface ProjectRule {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	target: TargetId;
 	path: string;
@@ -226,6 +258,8 @@ export interface ProjectRule {
 }
 
 export interface SkillAsset {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	name: string;
 	description: string;
@@ -289,6 +323,8 @@ export interface ChunkingStrategy {
 }
 
 export interface AgentDefinition {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	name: string;
 	description: string;
@@ -302,12 +338,19 @@ export interface AgentDefinition {
 	 * host has a control for it; otherwise exporters report a degradation.
 	 */
 	hostInstructions?: "include" | "exclude";
+	/**
+	 * Set by `agentsFrom`/`agentFrom`: the agent file already lives in the
+	 * repository, and exporters that write Markdown agent files emit it unchanged.
+	 */
+	source?: { file: string; content: string };
 	model?: string;
 	delegation?: DelegationStrategyRef;
 	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 }
 
 export interface ToolSurface {
+	/** Limit this primitive to these targets; omitted means every target. */
+	targets?: TargetId[];
 	id: string;
 	transport: "mcp-stdio" | "mcp-sse" | "mcp-http" | "native" | "cli";
 	tools: ToolDefinition[];
@@ -593,6 +636,8 @@ export interface PluginIr {
 	runtimeModules: RuntimeModule[];
 	/** Plugin-level files; paths are relative to the plugin root. */
 	resources?: PluginFile[];
+	/** Files written as-is into one target's bundle, relative to its root. */
+	targetFiles?: Partial<Record<TargetId, PluginFile[]>>;
 }
 
 export interface LoweredTargetGraph {

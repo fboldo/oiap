@@ -167,6 +167,57 @@ describe("planSync", () => {
 	});
 });
 
+describe("planSync catalogs", () => {
+	test("uses marketplace settings and per-host overrides", () => {
+		const plan = planSync(
+			{
+				manifest: {
+					...manifest,
+					author: { name: "Clerk" },
+					keywords: ["auth"],
+					marketplace: {
+						name: "sample-skills",
+						description: "Sample skills catalog.",
+						targetMetadata: {
+							"claude-code": { entry: { version: null } },
+						},
+					},
+				},
+			},
+			new Map([
+				[
+					"claude-code",
+					bundle("claude-code", { ".claude-plugin/plugin.json": "{}" }),
+				],
+			]),
+			"root",
+		);
+		const catalog = JSON.parse(
+			String(
+				plan.files.find(
+					(file) => file.path === ".claude-plugin/marketplace.json",
+				)?.content,
+			),
+		);
+
+		expect(catalog).toEqual({
+			name: "sample-skills",
+			owner: { name: "Clerk" },
+			metadata: { description: "Sample skills catalog." },
+			plugins: [
+				{
+					name: "sample",
+					source: "./",
+					description: "Sync fixture.",
+					author: { name: "Clerk" },
+					keywords: ["auth"],
+					category: "testing",
+				},
+			],
+		});
+	});
+});
+
 describe("planSync with author files", () => {
 	test("moves a host whose root files would overwrite the author's", () => {
 		const plan = planSync(

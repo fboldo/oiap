@@ -58,6 +58,12 @@ export interface PluginDefinition {
 	policies?: PermissionPolicy[];
 	runtimeModules?: RuntimeModule[];
 	resources?: PluginFile[];
+	/**
+	 * Files written as-is into one target's bundle, relative to its root: host
+	 * files OIAP does not model, such as hand-written hook scripts or Gemini
+	 * `commands/*.toml`.
+	 */
+	targetFiles?: Partial<Record<TargetId, PluginFile[]>>;
 	targetModules?: Partial<
 		Record<TargetId, TargetModuleRef | TargetModuleRef[]>
 	>;
@@ -215,6 +221,69 @@ export function skillFrom(
 	};
 }
 
+export interface AgentsFromOptions extends MarkdownFileOptions {
+	/** Return false to leave an agent file out; receives its file name. */
+	include?: (fileName: string) => boolean;
+}
+
+/**
+ * Use the agents a repository already has: every `<directory>/*.md` becomes an
+ * agent that hosts reading Markdown agent files get unchanged. Frontmatter is
+ * read for `name`, `description` and `model`; the body becomes the agent's
+ * instructions for hosts with other agent formats.
+ */
+export function agentsFrom(
+	directory: string | URL,
+	options: AgentsFromOptions = {},
+): AgentDefinition[] {
+	const root = resolveMarkdownFilePath(directory, options);
+
+	if (!existsSync(root) || !statSync(root).isDirectory()) {
+		throw new Error(`Agents directory not found: ${root}`);
+	}
+
+	return readdirSync(root, { withFileTypes: true })
+		.filter(
+			(entry) =>
+				entry.isFile() &&
+				entry.name.endsWith(".md") &&
+				(options.include?.(entry.name) ?? true),
+		)
+		.map((entry) => entry.name)
+		.sort()
+		.map((name) => agentFrom(join(root, name)));
+}
+
+/** Use one agent file that already exists in the repository; see `agentsFrom`. */
+export function agentFrom(
+	file: string | URL,
+	options: MarkdownFileOptions = {},
+): AgentDefinition {
+	const agentFile = resolveMarkdownFilePath(file, options);
+	const content = readFileSync(agentFile, "utf8");
+	const { frontmatter } = splitFrontmatter(content);
+	const id = basename(agentFile).replace(/\.md$/, "");
+	const description = frontmatter.description;
+
+	if (typeof description !== "string" || description.trim() === "") {
+		throw new Error(`${agentFile} needs a description in its frontmatter.`);
+	}
+
+	return {
+		id,
+		name: typeof frontmatter.name === "string" ? frontmatter.name : id,
+		description: description.trim(),
+		instructions: { id: agentSourceInstructionId(id), kind: "instruction" },
+		model:
+			typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+		source: { file: agentFile, content },
+	};
+}
+
+function agentSourceInstructionId(id: string): string {
+	return `${id}-agent-source`;
+}
+
 function skillSourceInstructionId(id: string): string {
 	return `${id}-skill-source`;
 }
@@ -240,7 +309,7 @@ function splitFrontmatter(text: string): {
 	};
 }
 
-/** Instruction modules for in-place skills whose body the definition does not declare. */
+/** Instruction modules for in-place skills and agents whose body the definition does not declare. */
 function skillSourceInstructions(
 	definition: PluginDefinition,
 ): SkillInstruction[] {
@@ -248,18 +317,34 @@ function skillSourceInstructions(
 		(definition.instructions ?? []).map((instruction) => instruction.id),
 	);
 
-	return (definition.skills ?? []).flatMap((skill) =>
-		skill.source && !declared.has(skill.instructions.id)
+	const agentInstructions = (definition.agents ?? []).flatMap((agent) =>
+		agent.source && !declared.has(agent.instructions.id)
 			? [
 					{
-						id: skill.instructions.id,
-						purpose: "workflow" as const,
-						triggers: [skill.name],
-						body: splitFrontmatter(skill.source.skillFile).body.trimStart(),
+						id: agent.instructions.id,
+						purpose: "agent" as const,
+						triggers: [agent.name],
+						body: splitFrontmatter(agent.source.content).body.trimStart(),
 					},
 				]
 			: [],
 	);
+
+	return [
+		...agentInstructions,
+		...(definition.skills ?? []).flatMap((skill) =>
+			skill.source && !declared.has(skill.instructions.id)
+				? [
+						{
+							id: skill.instructions.id,
+							purpose: "workflow" as const,
+							triggers: [skill.name],
+							body: splitFrontmatter(skill.source.skillFile).body.trimStart(),
+						},
+					]
+				: [],
+		),
+	];
 }
 
 export function toPluginIr(definition: PluginDefinition): PluginIr {
@@ -283,6 +368,7 @@ export function toPluginIr(definition: PluginDefinition): PluginIr {
 		policies: definition.policies ?? [],
 		runtimeModules: definition.runtimeModules ?? [],
 		resources: definition.resources ?? [],
+		targetFiles: definition.targetFiles ?? {},
 	};
 }
 

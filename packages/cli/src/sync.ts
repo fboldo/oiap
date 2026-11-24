@@ -15,6 +15,7 @@ import type {
 	TargetBundle,
 	ValidationIssue,
 } from "@oiap/core";
+import { mergeTargetMetadata } from "@oiap/core";
 import { bundleHooksFromSource, loadPluginFile } from "./build.ts";
 import type { CliPluginInput } from "./registry.ts";
 import { getRegisteredExporter } from "./registry.ts";
@@ -50,10 +51,10 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		],
 	},
 	// https://antigravity.google/docs/build-plugins.md
+	// Its .antigravity-plugin/plugin.json wins over a root plugin.json.
 	antigravity: {
 		rootOnly: true,
 		reads: [
-			"plugin.json",
 			".antigravity-plugin/",
 			"skills/",
 			"agents/",
@@ -443,87 +444,136 @@ function renderMarketplaces(
 	manifest: PluginManifest,
 	placements: SyncPlacement[],
 ): RenderedFile[] {
-	const owner = manifest.author ?? { name: manifest.name };
-	const files: RenderedFile[] = [];
+	const settings = manifest.marketplace ?? {};
+	const catalogName = settings.name ?? manifest.id;
+	const owner = settings.owner ?? manifest.author ?? { name: manifest.name };
 	const source = (placement: SyncPlacement): string =>
 		placement.directory ? `./${placement.directory}` : "./";
 	const placementFor = (kind: MarketplaceKind): SyncPlacement | undefined =>
 		placements.find(
 			(placement) => SYNC_TARGET_RULES[placement.target]?.marketplace === kind,
 		);
+	// Fields every catalog format accepts for an entry; hosts ignore the rest.
+	const entry = (placement: SyncPlacement): Record<string, unknown> =>
+		mergeTargetMetadata(
+			mergeTargetMetadata(
+				omitUndefined({
+					name: manifest.id,
+					source: source(placement),
+					description: manifest.description,
+					version: manifest.version,
+					author: manifest.author,
+					homepage: manifest.homepage,
+					repository: manifest.repository,
+					license: manifest.license,
+					keywords: manifest.keywords,
+					category: manifest.categories[0],
+				}),
+				settings.entry,
+			),
+			settings.targetMetadata?.[placement.target]?.entry,
+		);
+	const catalog = (
+		placement: SyncPlacement,
+		base: Record<string, unknown>,
+	): Record<string, unknown> =>
+		mergeTargetMetadata(
+			base,
+			settings.targetMetadata?.[placement.target]?.catalog,
+		);
+	const files: RenderedFile[] = [];
 
+	// https://code.claude.com/docs/en/plugins/marketplace-reference
 	const claude = placementFor("claude");
 	if (claude) {
 		files.push(
-			jsonFile(".claude-plugin/marketplace.json", {
-				name: manifest.id,
-				owner,
-				plugins: [
+			jsonFile(
+				".claude-plugin/marketplace.json",
+				catalog(
+					claude,
 					omitUndefined({
-						name: manifest.id,
-						source: source(claude),
-						description: manifest.description,
-						version: manifest.version,
-						homepage: manifest.homepage,
+						name: catalogName,
+						owner,
+						metadata: settings.description
+							? { description: settings.description }
+							: undefined,
+						plugins: [entry(claude)],
 					}),
-				],
-			}),
+				),
+			),
 		);
 	}
 
+	// https://developers.openai.com/codex/plugins/build
 	const codex = placementFor("codex");
 	if (codex) {
 		files.push(
-			jsonFile(".agents/plugins/marketplace.json", {
-				name: manifest.id,
-				interface: { displayName: manifest.name },
-				plugins: [
-					omitUndefined({
-						name: manifest.id,
-						source: source(codex),
-						policy: {
-							installation: "AVAILABLE",
-							authentication: "ON_INSTALL",
-						},
-						category: manifest.categories[0],
-					}),
-				],
-			}),
+			jsonFile(
+				".agents/plugins/marketplace.json",
+				catalog(codex, {
+					name: catalogName,
+					interface: { displayName: manifest.displayName ?? manifest.name },
+					plugins: [
+						mergeTargetMetadata(
+							mergeTargetMetadata(
+								omitUndefined({
+									name: manifest.id,
+									source: source(codex),
+									policy: {
+										installation: "AVAILABLE",
+										authentication: "ON_INSTALL",
+									},
+									category: manifest.categories[0],
+								}),
+								settings.entry,
+							),
+							settings.targetMetadata?.codex?.entry,
+						),
+					],
+				}),
+			),
 		);
 	}
 
+	// https://cursor.com/docs/reference/plugins
 	const cursor = placementFor("cursor");
 	if (cursor) {
 		files.push(
-			jsonFile(".cursor-plugin/marketplace.json", {
-				name: manifest.id,
-				owner,
-				plugins: [
-					{
-						name: manifest.id,
-						source: source(cursor),
-						description: manifest.description,
-					},
-				],
-			}),
+			jsonFile(
+				".cursor-plugin/marketplace.json",
+				catalog(
+					cursor,
+					omitUndefined({
+						name: catalogName,
+						owner,
+						metadata: settings.description
+							? { description: settings.description }
+							: undefined,
+						plugins: [entry(cursor)],
+					}),
+				),
+			),
 		);
 	}
 
+	// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
 	const copilot = placementFor("copilot");
 	if (copilot) {
 		files.push(
-			jsonFile(".github/plugin/marketplace.json", {
-				name: manifest.id,
-				owner,
-				plugins: [
+			jsonFile(
+				".github/plugin/marketplace.json",
+				catalog(
+					copilot,
 					omitUndefined({
-						name: manifest.id,
-						source: source(copilot),
-						description: manifest.description,
-						version: manifest.version,
+						name: catalogName,
+						owner,
+						metadata: settings.description
+							? { description: settings.description }
+							: undefined,
+						plugins: [entry(copilot)],
 					}),
-				],
-			}),
+				),
+			),
 		);
 	}
 
