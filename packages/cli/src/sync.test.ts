@@ -346,7 +346,9 @@ describe("planSync with author files", () => {
 				],
 			]),
 			"root",
-			new Map([["package.json", Buffer.from('{"name":"author"}')]]),
+			{
+				authored: new Map([["package.json", Buffer.from('{"name":"author"}')]]),
+			},
 		);
 
 		expect(plan.placements[0]?.directory).toBe("plugins/openclaw");
@@ -370,7 +372,7 @@ describe("planSync with identical author files", () => {
 				],
 			]),
 			"root",
-			new Map([["skills/a/SKILL.md", Buffer.from("Authored")]]),
+			{ authored: new Map([["skills/a/SKILL.md", Buffer.from("Authored")]]) },
 		);
 		const lock = JSON.parse(
 			String(plan.files.find((file) => file.path === SYNC_LOCK_PATH)?.content),
@@ -531,6 +533,56 @@ export default definePlugin({
 		expect(
 			readFileSync(join(repo, ".claude-plugin", "plugin.json"), "utf8"),
 		).toContain('\n  "name": "sample"');
+		expect(
+			readFileSync(join(repo, ".claude-plugin", "marketplace.json"), "utf8"),
+		).toContain('\n  "name": "sample"');
+	});
+
+	test("never reindents JSON copied as written", async () => {
+		const repo = mkdtempSync(
+			join(resolve(import.meta.dir, ".."), ".sync-verbatim-"),
+		);
+		directories.push(repo);
+		const template = '{ "compilerOptions": { "lib": ["dom", "es2022"] } }\n';
+		mkdirSync(join(repo, "skills", "app", "templates"), { recursive: true });
+		writeFileSync(
+			join(repo, "skills", "app", "SKILL.md"),
+			"---\nname: app\ndescription: Build an app.\n---\n\nBuild it.\n",
+		);
+		writeFileSync(
+			join(repo, "skills", "app", "templates", "tsconfig.json"),
+			template,
+		);
+		writeFileSync(join(repo, "package.json"), '{\n  "name": "x"\n}\n');
+		writeFileSync(
+			join(repo, "oiap.plugin.ts"),
+			`import { definePlugin, skillsFrom } from "@oiap/core";
+export default definePlugin({
+	manifest: ${JSON.stringify({ ...manifest, supportedTargets: ["claude-code", "codex"] })},
+	skills: skillsFrom("skills"),
+});
+`,
+		);
+		const options = {
+			inputPath: join(repo, "oiap.plugin.ts"),
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		const first = await syncPluginFile({ ...options, check: false });
+
+		expect(
+			first.plan.placements.map((placement) => placement.directory),
+		).toEqual(["", ""]);
+		expect(
+			readFileSync(
+				join(repo, "skills", "app", "templates", "tsconfig.json"),
+				"utf8",
+			),
+		).toBe(template);
+		expect(
+			(await syncPluginFile({ ...options, check: true })).differences,
+		).toEqual([]);
 	});
 
 	test("keeps a stale file the author changed", async () => {

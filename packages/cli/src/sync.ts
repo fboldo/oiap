@@ -209,6 +209,18 @@ export interface SyncPlan {
 	errors: string[];
 }
 
+/** What the repository already holds, as planSync needs to know it. */
+export interface SyncRepositoryState {
+	/**
+	 * Files the author wrote, by path. A target that would write different
+	 * content at one of these paths moves off the root; identical files, such
+	 * as skills used with `skillsFrom`, are shared and stay the author's.
+	 */
+	authored?: ReadonlyMap<string, Buffer>;
+	/** Indentation for each catalog file, to match the repository. */
+	catalogIndents?: ReadonlyMap<string, string>;
+}
+
 export interface SyncLock {
 	plugin: string;
 	version: string;
@@ -236,13 +248,10 @@ export function planSync(
 	plugin: CliPluginInput,
 	bundles: Map<string, TargetBundle>,
 	layout: SyncLayout,
-	/**
-	 * Files the author wrote, by path. A target that would write different
-	 * content at one of these paths moves off the root; identical files, such
-	 * as skills used with `skillsFrom`, are shared and stay the author's.
-	 */
-	authored: ReadonlyMap<string, Buffer> = new Map(),
+	repository: SyncRepositoryState = {},
 ): SyncPlan {
+	const authored = repository.authored ?? new Map<string, Buffer>();
+	const catalogIndents = repository.catalogIndents ?? new Map<string, string>();
 	const manifest = getManifest(plugin);
 	const placed = new Map<string, PlacedFile>();
 	declaredReads.clear();
@@ -366,7 +375,12 @@ export function planSync(
 		});
 	}
 
-	const marketplaceFiles = renderMarketplaces(manifest, placements);
+	const marketplaceFiles = renderMarketplaces(manifest, placements).map(
+		(file) => {
+			const indent = catalogIndents.get(file.path);
+			return indent === undefined ? file : reindent(file, indent);
+		},
+	);
 
 	for (const file of marketplaceFiles) {
 		if (placed.has(file.path)) {
@@ -815,13 +829,11 @@ export async function syncPluginFile(
 
 	const repoDir = resolve(options.repoDir);
 	const previous = await readLock(repoDir);
-	await matchJsonIndentation(repoDir, bundles);
-	const plan = planSync(
-		plugin,
-		bundles,
-		options.layout,
-		await authorFiles(repoDir, bundles, previous),
-	);
+	const catalogIndents = await matchJsonIndentation(repoDir, bundles);
+	const plan = planSync(plugin, bundles, options.layout, {
+		authored: await authorFiles(repoDir, bundles, previous),
+		catalogIndents,
+	});
 
 	if (servedByAgentPlugins.length > 0) {
 		plan.notes.push(
@@ -907,10 +919,19 @@ export async function syncPluginFile(
  * existing file's, else the root package.json's. A first sync then changes
  * only the values that differ, not every line.
  */
+const VERBATIM_KINDS = new Set(["skill-file", "resource", "target-file"]);
+
+const CATALOG_PATHS = [
+	".claude-plugin/marketplace.json",
+	".agents/plugins/marketplace.json",
+	".cursor-plugin/marketplace.json",
+	".github/plugin/marketplace.json",
+];
+
 async function matchJsonIndentation(
 	repoDir: string,
 	bundles: Map<string, TargetBundle>,
-): Promise<void> {
+): Promise<Map<string, string>> {
 	const packageJson = await readOptional(
 		resolveRepoPath(repoDir, "package.json"),
 	);
@@ -922,7 +943,13 @@ async function matchJsonIndentation(
 		const files: RenderedFile[] = [];
 
 		for (const file of bundle.files) {
-			if (!file.path.endsWith(".json") || typeof file.content !== "string") {
+			// Files copied as written (skill files, resources, target files) keep
+			// their exact bytes; only JSON OIAP generates is reindented.
+			if (
+				!file.path.endsWith(".json") ||
+				typeof file.content !== "string" ||
+				VERBATIM_KINDS.has(file.source?.primitiveKind ?? "")
+			) {
 				files.push(file);
 				continue;
 			}
@@ -937,6 +964,20 @@ async function matchJsonIndentation(
 
 		bundles.set(target, { ...bundle, files });
 	}
+
+	// Indentation for the catalogs sync writes itself.
+	const catalogIndents = new Map<string, string>();
+
+	for (const path of CATALOG_PATHS) {
+		const existing = await readOptional(resolveRepoPath(repoDir, path));
+		const indent = existing ? jsonIndent(existing.toString("utf8")) : fallback;
+
+		if (indent !== undefined) {
+			catalogIndents.set(path, indent);
+		}
+	}
+
+	return catalogIndents;
 }
 
 function jsonIndent(text: string): string | undefined {
