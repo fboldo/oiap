@@ -29,9 +29,11 @@
         "@oiap/exporter-codex": "workspace:*",
         "@oiap/exporter-cursor": "workspace:*",
         "@oiap/exporter-gemini-cli": "workspace:*",
+        "@oiap/exporter-github-copilot-cli": "workspace:*",
         "@oiap/exporter-openclaw": "workspace:*",
         "@oiap/exporter-opencode": "workspace:*",
         "@oiap/exporter-vscode-copilot": "workspace:*",
+        "@oiap/exporter-windsurf": "workspace:*",
       },
       "peerDependencies": {
         "typescript": "^5",
@@ -49,6 +51,7 @@
       "version": "0.2.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
+        "@oiap/runtime": "workspace:*",
       },
       "peerDependencies": {
         "typescript": "^5",
@@ -109,6 +112,17 @@
         "typescript": "^5",
       },
     },
+    "packages/exporter-github-copilot-cli": {
+      "name": "@oiap/exporter-github-copilot-cli",
+      "version": "0.2.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
+        "@oiap/runtime": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
     "packages/exporter-openclaw": {
       "name": "@oiap/exporter-openclaw",
       "version": "0.2.0",
@@ -142,6 +156,17 @@
         "typescript": "^5",
       },
     },
+    "packages/exporter-windsurf": {
+      "name": "@oiap/exporter-windsurf",
+      "version": "0.2.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
+        "@oiap/runtime": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
     "packages/install-agent-plugin": {
       "name": "install-agent-plugin",
       "version": "0.2.0",
@@ -156,9 +181,11 @@
         "@oiap/exporter-codex": "workspace:*",
         "@oiap/exporter-cursor": "workspace:*",
         "@oiap/exporter-gemini-cli": "workspace:*",
+        "@oiap/exporter-github-copilot-cli": "workspace:*",
         "@oiap/exporter-openclaw": "workspace:*",
         "@oiap/exporter-opencode": "workspace:*",
         "@oiap/exporter-vscode-copilot": "workspace:*",
+        "@oiap/exporter-windsurf": "workspace:*",
         "esbuild": "^0.27.0",
       },
       "peerDependencies": {
@@ -399,11 +426,15 @@
 
     "@oiap/exporter-gemini-cli": ["@oiap/exporter-gemini-cli@workspace:packages/exporter-gemini-cli"],
 
+    "@oiap/exporter-github-copilot-cli": ["@oiap/exporter-github-copilot-cli@workspace:packages/exporter-github-copilot-cli"],
+
     "@oiap/exporter-openclaw": ["@oiap/exporter-openclaw@workspace:packages/exporter-openclaw"],
 
     "@oiap/exporter-opencode": ["@oiap/exporter-opencode@workspace:packages/exporter-opencode"],
 
     "@oiap/exporter-vscode-copilot": ["@oiap/exporter-vscode-copilot@workspace:packages/exporter-vscode-copilot"],
+
+    "@oiap/exporter-windsurf": ["@oiap/exporter-windsurf@workspace:packages/exporter-windsurf"],
 
     "@oiap/runtime": ["@oiap/runtime@workspace:packages/runtime"],
 

@@ -47,6 +47,9 @@ If your own CLI only supports a subset of targets, include the exporter packages
 for those targets in that CLI package's runtime dependencies.
 
 The default scope is local/project installation. Use `--global` for the target's
-user-level path. Install paths are inherited from the selected target profile.
-Pass `--out <dir>` only when you want to materialize a bundle in an explicit
-directory for review, CI, or debugging.
+user-level path when the selected target defines one. Install paths are
+inherited from the selected target profile. Pass `--out <dir>` when you want to
+materialize a bundle in an explicit directory for review or debugging, or when
+the selected target only defines a local convention. For example,
+`vscode-copilot-chat` installs locally under `.github/plugins/<pluginId>` but
+does not define a profile-owned global path here.

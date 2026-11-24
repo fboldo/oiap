@@ -15,6 +15,7 @@ source; they keep the same plugin intent while rewriting the behavior as OIAP
 | `security-guidance` | <https://github.com/anthropics/claude-code/tree/main/plugins/security-guidance> |
 | `explanatory-output-style` | <https://github.com/anthropics/claude-code/tree/main/plugins/explanatory-output-style> |
 | `feature-dev` | <https://github.com/anthropics/claude-code/tree/main/plugins/feature-dev> |
+| `elephant-goldfish-model` | <https://github.com/google/elephant-goldfish-model> (shared content vendored under Apache-2.0) |
 | `discovery-installer-cli` | Plugin-owned installer CLI built with `installPlugin()` |
 
 Build one example for every registered target:

@@ -7,7 +7,8 @@
 		"defaultBranch": "main"
 	},
 	"files": {
-		"ignoreUnknown": false
+		"ignoreUnknown": false,
+		"includes": ["**", "!examples/elephant-goldfish-model/source"]
 	},
 	"formatter": {
 		"enabled": true,

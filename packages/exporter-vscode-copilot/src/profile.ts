@@ -15,15 +15,11 @@ export const vsCodeCopilotProfile = defineHostProfile({
 		supported: true,
 		fidelity: "partial",
 		notes:
-			"Local installs use project .vscode/copilot/plugins; global installs use the VS Code user config directory under copilot/plugins.",
+			"Local installs use project .github/plugins. A stable global install directory is not profile-owned here; use VS Code or Copilot CLI-managed installs, or pass --out when you want an explicit materialization directory.",
 		paths: {
 			local: {
 				base: "cwd",
-				segments: [".vscode", "copilot", "plugins", "{pluginId}"],
-			},
-			global: {
-				base: "xdg-config-home",
-				segments: ["Code", "User", "copilot", "plugins", "{pluginId}"],
+				segments: [".github", "plugins", "{pluginId}"],
 			},
 		},
 	},
@@ -48,7 +44,7 @@ export const vsCodeCopilotProfile = defineHostProfile({
 		supported: true,
 		fidelity: "partial",
 		notes:
-			"Exports root hooks.json commands that call the generated OIAP raw-JS hook runtime. Copilot-format plugins do not define a plugin-root token.",
+			"Exports root hooks.json commands that call the generated OIAP raw-JS hook runtime through the PLUGIN_ROOT token (https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference).",
 	},
 	mcpSupport: {
 		supported: true,

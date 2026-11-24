@@ -87,6 +87,12 @@ const builtInInstallTargetDefinitions = {
 		exportName: "exportCursor",
 		profileExportName: "cursorProfile",
 	},
+	"github-copilot-cli": {
+		id: "github-copilot-cli",
+		packageName: "@oiap/exporter-github-copilot-cli",
+		exportName: "exportGitHubCopilotCli",
+		profileExportName: "gitHubCopilotCliProfile",
+	},
 	"gemini-cli": {
 		id: "gemini-cli",
 		packageName: "@oiap/exporter-gemini-cli",
@@ -110,6 +116,12 @@ const builtInInstallTargetDefinitions = {
 		packageName: "@oiap/exporter-vscode-copilot",
 		exportName: "exportVsCodeCopilot",
 		profileExportName: "vsCodeCopilotProfile",
+	},
+	windsurf: {
+		id: "windsurf",
+		packageName: "@oiap/exporter-windsurf",
+		exportName: "exportWindsurf",
+		profileExportName: "windsurfProfile",
 	},
 } satisfies Record<string, BuiltInInstallTargetDefinition>;
 

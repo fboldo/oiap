@@ -94,7 +94,91 @@ describe("exportOpenClaw", () => {
 		expect(issueCodes).not.toContain("degraded-hooks");
 		expect(issueCodes).not.toContain("degraded-runtime");
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportOpenClaw(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"Read ../../standards/style.md, then dispatch ../../.oiap/agents/critic.json.",
+		);
+		expect(
+			readJson<{ access?: string; instructions?: string }>(
+				bundle,
+				".oiap/agents/critic.json",
+			),
+		).toMatchObject({
+			access: "read-only",
+			instructions: "Critique the document.",
+		});
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).toContain("read-only-agent");
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			resources: [{ path: "openclaw.plugin.json", content: "{}" }],
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: ["openclaw"],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleOpenClawPlugin = {
 	manifest: {

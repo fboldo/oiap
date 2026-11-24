@@ -76,7 +76,81 @@ describe("exportClaudeCode", () => {
 		expect(issueCodes).not.toContain("degraded-hooks");
 		expect(issueCodes).not.toContain("degraded-runtime");
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportClaudeCode(bundleFilesPlugin);
+		const pluginRoot = "$" + "{CLAUDE_PLUGIN_ROOT}";
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			`Read ${pluginRoot}/standards/style.md, then dispatch ${pluginRoot}/agents/critic.md.`,
+		);
+		expect(readText(bundle, "agents/critic.md")).toContain(
+			'tools: "Read,Grep,Glob"',
+		);
+		expect(bundle.report.status).toBe("ok");
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			resources: [{ path: "agents/critic.md", content: "shadow" }],
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: ["claude-code"],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleClaudePlugin = {
 	manifest: {

@@ -23,7 +23,15 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeCommand,
 	renderHookRuntimeFiles,
@@ -139,9 +147,9 @@ function isPluginIr(plugin: GeminiCliPluginInput): plugin is PluginIr {
 function renderGeminiCliFiles(ir: PluginIr): RenderedFile[] {
 	const usedSkillSlugs = new Set<string>();
 	const usedCommandPaths = new Set<string>();
-	const usedAgentSlugs = new Set<string>();
+	const agentSlugs = reserveAgentSlugs(ir.agents);
 	const contextFiles = renderContextFiles(ir);
-	const pluginFiles = [
+	const generatedFiles = [
 		renderExtensionManifest(ir, contextFiles),
 		...contextFiles,
 		...renderSkills(ir.skills, ir.instructions, usedSkillSlugs),
@@ -151,13 +159,30 @@ function renderGeminiCliFiles(ir: PluginIr): RenderedFile[] {
 			ir.instructions,
 			usedCommandPaths,
 		),
-		...renderAgents(ir.agents, ir.instructions, usedAgentSlugs),
+		...renderAgents(ir.agents, ir.instructions, agentSlugs),
 		...renderHookFiles(ir),
 		...renderPolicyFiles(ir.policies),
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	// Gemini CLI only substitutes ${extensionPath} in gemini-extension.json and
+	// hooks/hooks.json, not in skill, agent or context text, so bundle paths are
+	// resolved relative to the file that references them.
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: RESOURCE_ROOT,
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [
+				agent.id,
+				agentPath(agentSlugs.get(agent.id) ?? slug(agent.id, "agent")),
+			]),
+		),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -283,7 +308,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -298,11 +323,18 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -342,11 +374,11 @@ function renderCommands(
 function renderAgents(
 	agents: AgentDefinition[],
 	instructions: InstructionModule[],
-	usedAgentSlugs: Set<string>,
+	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
 		const instruction = findInstruction(agent.instructions.id, instructions);
-		const agentSlug = reserveSlug(agent.id, usedAgentSlugs, "agent");
+		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
 		const body = [
 			agent.name === agentSlug ? undefined : `# ${agent.name}`,
 			instruction
@@ -361,17 +393,50 @@ function renderAgents(
 				name: agentSlug,
 				description: agent.description,
 				model: agent.model,
-				tools: agent.tools?.map((tool) => tool.id),
+				tools: agentTools(agent),
+				...targetMetadata(agent.targetMetadata),
 			},
 			body,
 		);
 
 		return textFile(
-			`agents/${agentSlug}.md`,
+			agentPath(agentSlug),
 			content,
 			sourceRef(agent.id, "agent"),
 		);
 	});
+}
+
+function reserveAgentSlugs(agents: AgentDefinition[]): Map<string, string> {
+	const usedAgentSlugs = new Set<string>();
+
+	return new Map(
+		agents.map((agent) => [
+			agent.id,
+			reserveSlug(agent.id, usedAgentSlugs, "agent"),
+		]),
+	);
+}
+
+function agentPath(agentSlug: string): string {
+	return `agents/${agentSlug}.md`;
+}
+
+/** Gemini CLI built-in tools that only read the workspace (packages/core/src/tools/definitions/coreTools.ts). */
+const READ_ONLY_TOOLS = [
+	"read_file",
+	"read_many_files",
+	"list_directory",
+	"glob",
+	"grep_search",
+];
+
+function agentTools(agent: AgentDefinition): string[] | undefined {
+	if (agent.tools) {
+		return agent.tools.map((tool) => tool.id);
+	}
+
+	return agent.access === "read-only" ? READ_ONLY_TOOLS : undefined;
 }
 
 function renderAgentMetadata(agent: AgentDefinition): string | undefined {
@@ -569,6 +634,11 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `hooks/hooks.json`: generated Gemini CLI hook configuration, when present.",
 		"- `policies/`: generated Gemini Policy Engine rules for supported policies, when present.",
 		"- `.oiap/`: source map, capability report, policy evidence, and degraded runtime metadata.",
+		...(ir.resources && ir.resources.length > 0
+			? [
+					"- Plugin resources are written at the extension root, beside `gemini-extension.json`; skill files sit next to each skill's `SKILL.md`.",
+				]
+			: []),
 		"## Current Limitations",
 		"Supported TypeScript hook functions are emitted as a generated raw-JS OIAP runtime. Gemini CLI sub-agents are treated as a preview surface, and extension policy allow decisions are recorded as evidence rather than emitted as auto-approval rules.",
 	];
@@ -579,6 +649,14 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		sourceRef(manifest.id, "readme"),
 	);
 }
+
+const RESOURCE_ROOT = "";
+
+const BUNDLE_FILE_SUPPORT = {
+	target: GEMINI_CLI_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -645,7 +723,9 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+	];
 
 	if (ir.agents.length > 0) {
 		degradations.push({
@@ -746,7 +826,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -777,21 +859,11 @@ function collectIssues(
 }
 
 function validateGeminiCliBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
-
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `Gemini CLI bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	const manifestFile = bundle.files.find(
 		(file) => file.path === "gemini-extension.json",
@@ -1353,7 +1425,10 @@ function withFrontmatter(
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[GEMINI_CLI_TARGET] ?? {};
 }

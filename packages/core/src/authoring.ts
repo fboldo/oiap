@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HookDefinition, TargetModuleRef } from "./hooks";
 import type {
@@ -13,6 +13,7 @@ import type {
 	Invocation,
 	PermissionPolicy,
 	PlatformExporter,
+	PluginFile,
 	PluginIr,
 	PluginManifest,
 	ProjectRule,
@@ -46,6 +47,7 @@ export interface PluginDefinition {
 	delegationStrategies?: DelegationStrategy[];
 	policies?: PermissionPolicy[];
 	runtimeModules?: RuntimeModule[];
+	resources?: PluginFile[];
 	targetModules?: Partial<
 		Record<TargetId, TargetModuleRef | TargetModuleRef[]>
 	>;
@@ -81,6 +83,63 @@ export function markdownFile(
 	return readFileSync(resolvedPath, "utf8");
 }
 
+export interface PluginFilesOptions extends MarkdownFileOptions {
+	/** Path prefix for the returned files, such as `references`. */
+	prefix?: string;
+	/** Return false to leave a file out; receives the path relative to the directory. */
+	include?: (path: string) => boolean;
+}
+
+/**
+ * Read every file under a directory as `PluginFile`s, for `SkillAsset.files`
+ * and plugin `resources`. UTF-8 files become strings; others stay bytes.
+ */
+export function pluginFiles(
+	directory: string | URL,
+	options: PluginFilesOptions = {},
+): PluginFile[] {
+	const root = resolveMarkdownFilePath(directory, options);
+
+	if (!existsSync(root) || !statSync(root).isDirectory()) {
+		throw new Error(`Plugin file directory not found: ${root}`);
+	}
+
+	// ignoreBOM keeps a leading byte-order mark, so text files stay byte-identical.
+	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+	return listFiles(root)
+		.map((filePath) => relative(root, filePath).split(sep).join("/"))
+		.filter((path) => options.include?.(path) ?? true)
+		.sort()
+		.map((path) => {
+			const filePath = join(root, path);
+			const bytes = readFileSync(filePath);
+			const mode = statSync(filePath).mode & 0o777;
+			let content: string | Uint8Array;
+			try {
+				content = decoder.decode(bytes);
+			} catch {
+				content = new Uint8Array(bytes);
+			}
+			return {
+				path: options.prefix ? `${options.prefix}/${path}` : path,
+				content,
+				// Keep executable bits, such as on a skill's scripts.
+				mode: mode & 0o111 ? mode : undefined,
+			};
+		});
+}
+
+function listFiles(directory: string): string[] {
+	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+		const entryPath = join(directory, entry.name);
+		if (entry.isDirectory()) {
+			return listFiles(entryPath);
+		}
+		return entry.isFile() ? [entryPath] : [];
+	});
+}
+
 export function toPluginIr(definition: PluginDefinition): PluginIr {
 	return {
 		manifest: definition.manifest,
@@ -98,6 +157,7 @@ export function toPluginIr(definition: PluginDefinition): PluginIr {
 		delegationStrategies: definition.delegationStrategies ?? [],
 		policies: definition.policies ?? [],
 		runtimeModules: definition.runtimeModules ?? [],
+		resources: definition.resources ?? [],
 	};
 }
 

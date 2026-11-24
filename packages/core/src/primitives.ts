@@ -28,7 +28,8 @@ export type KnownTargetId =
 	| "pi"
 	| "cline"
 	| "cursor"
-	| "antigravity";
+	| "antigravity"
+	| "windsurf";
 
 export type TargetId = KnownTargetId | (string & {});
 
@@ -78,10 +79,20 @@ export interface PluginManifest {
 	description: string;
 	homepage?: string;
 	license?: string;
+	/** Publisher, used for marketplace owners and manifest authors. */
+	author?: PluginAuthor;
+	/** Source repository URL. */
+	repository?: string;
 	categories: string[];
 	requiredCapabilities?: HostCapability[];
 	optionalCapabilities?: HostCapability[];
 	supportedTargets: TargetId[];
+}
+
+export interface PluginAuthor {
+	name: string;
+	email?: string;
+	url?: string;
 }
 
 export interface Invocation {
@@ -214,8 +225,27 @@ export interface SkillAsset {
 	description: string;
 	instructions: InstructionModuleRef;
 	assets?: PackageAssetRef[];
+	/** Files shipped beside SKILL.md; paths are relative to the skill directory. */
+	files?: PluginFile[];
 	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 }
+
+/**
+ * A file shipped verbatim in every target bundle. Text files may reference
+ * other bundled files with `${OIAP_PLUGIN_ROOT}` and `${OIAP_AGENT_FILE:<id>}`.
+ */
+export interface PluginFile {
+	path: string;
+	content: string | Uint8Array;
+	mode?: number;
+}
+
+/**
+ * Host-neutral file access for an agent. Exporters map it to the host's own
+ * control (tool allowlist, read-only flag, permission map) and report a
+ * degradation when the host has none.
+ */
+export type AgentAccess = "read-only" | "read-write";
 
 export interface DelegationStrategy {
 	id: string;
@@ -241,9 +271,12 @@ export interface AgentDefinition {
 	name: string;
 	description: string;
 	instructions: InstructionModuleRef;
+	/** Host tool names, passed through as-is. Prefer `access` for portability. */
 	tools?: ToolRef[];
+	access?: AgentAccess;
 	model?: string;
 	delegation?: DelegationStrategyRef;
+	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 }
 
 export interface ToolSurface {
@@ -530,6 +563,8 @@ export interface PluginIr {
 	delegationStrategies: DelegationStrategy[];
 	policies: PermissionPolicy[];
 	runtimeModules: RuntimeModule[];
+	/** Plugin-level files; paths are relative to the plugin root. */
+	resources?: PluginFile[];
 }
 
 export interface LoweredTargetGraph {

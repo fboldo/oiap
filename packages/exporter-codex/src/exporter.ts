@@ -23,7 +23,16 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	agentAccessDegradation,
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeCommand,
 	renderHookRuntimeFiles,
@@ -123,7 +132,7 @@ function isPluginIr(plugin: CodexPluginInput): plugin is PluginIr {
 
 function renderCodexFiles(ir: PluginIr): RenderedFile[] {
 	const usedSkillSlugs = new Set<string>();
-	const pluginFiles = [
+	const generatedFiles = [
 		renderPluginManifest(ir),
 		...renderProjectInstructions(ir),
 		...renderProjectRuleFiles(ir.rules),
@@ -141,7 +150,18 @@ function renderCodexFiles(ir: PluginIr): RenderedFile[] {
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: RESOURCE_ROOT,
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [agent.id, agentPath(agent)]),
+		),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -258,7 +278,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(skill.instructions.id, instructions);
 		const body = instruction
 			? instructionBody(instruction)
@@ -273,11 +293,18 @@ function renderSkills(
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
 		);
 
-		return textFile(
-			`skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -334,13 +361,14 @@ function renderAgent(
 		developer_instructions: instruction
 			? instructionBody(instruction)
 			: `Agent instruction reference not found: ${agent.instructions.id}`,
+		...targetMetadata(agent.targetMetadata),
 	});
 
-	return textFile(
-		`.codex/agents/${slug(agent.id)}.toml`,
-		content,
-		sourceRef(agent.id, "agent"),
-	);
+	return textFile(agentPath(agent), content, sourceRef(agent.id, "agent"));
+}
+
+function agentPath(agent: AgentDefinition): string {
+	return `.codex/agents/${slug(agent.id)}.toml`;
 }
 
 function renderHookFiles(ir: PluginIr): RenderedFile[] {
@@ -501,6 +529,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `.codex/agents/`: generated project-scoped custom agents, when present.",
 		"- `.codex/rules/`: generated project-scoped command rules, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
+		"- Skill files sit beside each `SKILL.md`; plugin resources are written at the bundle root, when present.",
 		"## Current Limitations",
 		"OIAP commands are exported as Codex skills. Supported TypeScript hook functions are emitted as a generated raw-JS OIAP runtime; unsupported lifecycle events remain degraded.",
 	];
@@ -511,6 +540,15 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		sourceRef(manifest.id, "readme"),
 	);
 }
+
+/** Codex plugins install as a directory, so resources live at the bundle root. */
+const RESOURCE_ROOT = "";
+
+const BUNDLE_FILE_SUPPORT = {
+	target: CODEX_TARGET,
+	files: true,
+	rootVariable: false,
+};
 
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
@@ -573,7 +611,14 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+		...agentAccessDegradation(
+			CODEX_TARGET,
+			ir.agents,
+			"Codex custom agent files cannot set a sandbox; sandbox_mode in .codex/agents/*.toml does not override the parent session (https://developers.openai.com/codex/subagents).",
+		),
+	];
 
 	if (ir.commands.length > 0) {
 		degradations.push({
@@ -646,7 +691,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -677,21 +724,11 @@ function collectIssues(
 }
 
 function validateCodexBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
-	const filePaths = new Set<string>();
-
-	for (const file of bundle.files) {
-		if (filePaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "duplicate-file-path",
-				message: `Codex bundle contains duplicate file path: ${file.path}`,
-				path: file.path,
-			});
-		}
-
-		filePaths.add(file.path);
-	}
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
+	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	if (!filePaths.has(".codex-plugin/plugin.json")) {
 		issues.push({
@@ -950,31 +987,71 @@ function withFrontmatter(
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[CODEX_TARGET] ?? {};
 }
 
 function tomlDocument(values: Record<string, unknown>): string {
-	return `${Object.entries(omitUndefined(values))
-		.map(([key, value]) => `${key} = ${tomlValue(value)}`)
+	return `${tomlEntries(values)
+		.map(([key, value]) => `${key} = ${value}`)
 		.join("\n")}\n`;
 }
 
-function tomlValue(value: unknown): string {
+// TOML has no null, so null and undefined values are left out.
+function tomlEntries(values: Record<string, unknown>): Array<[string, string]> {
+	return Object.entries(values).flatMap(([key, value]) => {
+		const rendered = tomlValue(value);
+		return rendered === undefined ? [] : [[tomlKey(key), rendered]];
+	});
+}
+
+function tomlKey(key: string): string {
+	return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+}
+
+// JSON string escapes are valid TOML basic-string escapes.
+function tomlValue(value: unknown): string | undefined {
+	if (value === null || value === undefined) {
+		return undefined;
+	}
+
 	if (Array.isArray(value)) {
-		return `[${value.map(tomlValue).join(", ")}]`;
+		return `[${value
+			.map(tomlValue)
+			.filter((item) => item !== undefined)
+			.join(", ")}]`;
 	}
 
 	if (typeof value === "string") {
 		return JSON.stringify(value);
 	}
 
-	if (typeof value === "number" || typeof value === "boolean") {
+	if (typeof value === "number") {
+		return Number.isFinite(value)
+			? String(value)
+			: Number.isNaN(value)
+				? "nan"
+				: value > 0
+					? "inf"
+					: "-inf";
+	}
+
+	if (typeof value === "boolean") {
 		return String(value);
 	}
 
-	return JSON.stringify(value);
+	if (typeof value === "object") {
+		const entries = tomlEntries(value as Record<string, unknown>);
+		return entries.length === 0
+			? "{}"
+			: `{ ${entries.map(([key, item]) => `${key} = ${item}`).join(", ")} }`;
+	}
+
+	return JSON.stringify(String(value));
 }
 
 function reserveSlug(value: string, usedSlugs: Set<string>): string {

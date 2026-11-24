@@ -24,7 +24,8 @@ The exporter emits root `plugin.json` metadata, prompt files for slash commands,
 Agent Skills folders, custom agent files, root `hooks.json`, and root `.mcp.json`
 where the source plugin defines those surfaces.
 
-Copilot-format plugins do not currently define an official plugin-root token for
-hook commands. The exporter therefore emits generated hook runtime files under
-`.oiap/runtime/` and references them with plugin-relative paths in `hooks.json`,
-while reporting the hook path behavior as degraded in the capability report.
+Copilot-format plugins expand `${PLUGIN_ROOT}` in hook commands and MCP
+configuration ([agent plugin reference](https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference)).
+The exporter emits generated hook runtime files under `.oiap/runtime/` and
+references them through `${PLUGIN_ROOT}` in `hooks.json`, because hooks run
+from the workspace, not the plugin directory.

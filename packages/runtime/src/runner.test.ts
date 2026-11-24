@@ -102,6 +102,94 @@ export async function blockTool() {
 		});
 	});
 
+	test("maps GitHub Copilot CLI preToolUse results and toolArgs", async () => {
+		const fixture = await writeRunnerFixture({
+			target: "github-copilot-cli",
+			hooksSource: `
+export async function denyRm(context) {
+	return context.input.arguments.command === "rm -rf dist"
+		? { decision: "block", message: "No rm in " + context.input.tool.name }
+		: { decision: "allow" };
+}
+`,
+			hook: {
+				id: "deny-rm",
+				event: "before_tool",
+				targetEvent: "preToolUse",
+				exportName: "denyRm",
+			},
+		});
+
+		const result = await runRunner(fixture, {
+			input: JSON.stringify({
+				toolName: "bash",
+				toolArgs: JSON.stringify({ command: "rm -rf dist" }),
+			}),
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			permissionDecision: "deny",
+			permissionDecisionReason: "No rm in bash",
+		});
+	});
+
+	test("maps Antigravity PreToolUse results and toolCall input", async () => {
+		const fixture = await writeRunnerFixture({
+			target: "antigravity",
+			hooksSource: `
+export async function denyRm(context) {
+	return context.input.arguments.CommandLine === "rm -rf dist"
+		? { decision: "block", message: "No rm in " + context.input.tool.name }
+		: { decision: "allow" };
+}
+`,
+			hook: {
+				id: "deny-rm",
+				event: "before_tool",
+				targetEvent: "PreToolUse",
+				exportName: "denyRm",
+			},
+		});
+
+		const result = await runRunner(fixture, {
+			input: JSON.stringify({
+				toolCall: { name: "run_command", args: { CommandLine: "rm -rf dist" } },
+			}),
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			decision: "deny",
+			reason: "No rm in run_command",
+		});
+	});
+
+	test("maps GitHub Copilot CLI agentStop blocks", async () => {
+		const fixture = await writeRunnerFixture({
+			target: "github-copilot-cli",
+			hooksSource: `
+export async function keepGoing() {
+	return { decision: "block", reason: "Tests are failing" };
+}
+`,
+			hook: {
+				id: "keep-going",
+				event: "stop",
+				targetEvent: "agentStop",
+				exportName: "keepGoing",
+			},
+		});
+
+		const result = await runRunner(fixture, { input: "{}" });
+
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			decision: "block",
+			reason: "Tests are failing",
+		});
+	});
+
 	test("maps VS Code hook results to VS Code hook output", async () => {
 		const fixture = await writeRunnerFixture({
 			target: "vscode-copilot-chat",

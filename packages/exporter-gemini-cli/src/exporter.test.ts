@@ -96,7 +96,87 @@ describe("exportGeminiCli", () => {
 		expect(issueCodes).toContain("degraded-hooks");
 		expect(issueCodes).toContain("degraded-policy");
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportGeminiCli(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"Read ../../standards/style.md, then dispatch ../../agents/critic.md.",
+		);
+		expect(readText(bundle, "agents/critic.md")).toContain(
+			'tools: ["read_file","read_many_files","list_directory","glob","grep_search"]',
+		);
+		expect(readText(bundle, "agents/critic.md")).toContain("max_turns: 5");
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).not.toContain("read-only-agent");
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			resources: [{ path: "agents/critic.md", content: "shadow" }],
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: ["gemini-cli"],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+			targetMetadata: { "gemini-cli": { max_turns: 5 } },
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleGeminiPlugin = {
 	manifest: {

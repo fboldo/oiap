@@ -324,13 +324,19 @@ function normalizeHookInput(event: string, payload: UnknownRecord): unknown {
 	if (event === "before_tool" || event === "after_tool") {
 		return {
 			tool: normalizeTool(
-				payload.tool ?? payload.toolName ?? payload.tool_name ?? payload.name,
+				payload.tool ??
+					payload.toolName ??
+					payload.tool_name ??
+					asOptionalRecord(payload.toolCall)?.name ??
+					payload.name,
 			),
 			arguments: asRecord(
 				payload.arguments ??
 					payload.args ??
 					payload.params ??
-					payload.tool_input,
+					payload.tool_input ??
+					asOptionalRecord(payload.toolCall)?.args ??
+					parseJsonObject(payload.toolArgs),
 			),
 			callId:
 				typeof payload.callId === "string"
@@ -338,7 +344,7 @@ function normalizeHookInput(event: string, payload: UnknownRecord): unknown {
 					: typeof payload.tool_use_id === "string"
 						? payload.tool_use_id
 						: undefined,
-			result: payload.result ?? payload.tool_response,
+			result: payload.result ?? payload.tool_response ?? payload.toolResult,
 			error: payload.error,
 		};
 	}
@@ -657,6 +663,14 @@ function mapHookResult(options: {
 		return mapCursorHookResult(options.result, options.hook);
 	}
 
+	if (options.target === "github-copilot-cli") {
+		return mapCopilotCliHookResult(options.result, options.hook);
+	}
+
+	if (options.target === "antigravity") {
+		return mapAntigravityHookResult(options.result, options.hook);
+	}
+
 	const envelope = {
 		oiap: {
 			runtime: "generated-js",
@@ -695,6 +709,18 @@ function mapHookFailure(options: {
 		return mapCursorHookFailure(decision, options.hook, message);
 	}
 
+	if (options.target === "github-copilot-cli") {
+		const mapped = mapCopilotCliHookResult(decision, options.hook);
+		return { ...mapped, stderr: mapped.stderr || `${message}\n` };
+	}
+
+	if (options.target === "antigravity") {
+		return {
+			...mapAntigravityHookResult(decision, options.hook),
+			stderr: `${message}\n`,
+		};
+	}
+
 	const envelope = {
 		oiap: {
 			runtime: "generated-js",
@@ -712,6 +738,137 @@ function mapHookFailure(options: {
 		stderr: `${message}\n`,
 		exitCode,
 	};
+}
+
+/**
+ * GitHub Copilot CLI hook output (camelCase events):
+ * https://docs.github.com/en/copilot/reference/hooks-reference
+ * Exit code 2 denies preToolUse and permissionRequest.
+ */
+function mapCopilotCliHookResult(
+	result: HookResult,
+	hook: HookRuntimeHook,
+): MappedHookResult {
+	const event = hook.targetEvent ?? hook.event;
+	const reason = resultMessage(result);
+	const json = (output: UnknownRecord): MappedHookResult => ({
+		stdout: `${JSON.stringify(output)}\n`,
+		stderr: "",
+		exitCode: 0,
+	});
+
+	if (event === "preToolUse") {
+		if (result.decision === "block") {
+			return json({
+				permissionDecision: "deny",
+				permissionDecisionReason: blockMessage(result),
+			});
+		}
+
+		if (result.decision === "allow" || result.decision === "ask") {
+			return json({
+				permissionDecision: result.decision,
+				permissionDecisionReason: reason,
+			});
+		}
+	}
+
+	if (event === "permissionRequest" && result.decision === "block") {
+		return { stdout: "", stderr: `${blockMessage(result)}\n`, exitCode: 2 };
+	}
+
+	if (
+		(event === "agentStop" || event === "subagentStop") &&
+		result.decision === "block"
+	) {
+		return json({ decision: "block", reason: blockMessage(result) });
+	}
+
+	if (event === "postToolUse" && result.decision === "replace_result") {
+		return json({ modifiedResult: result.result });
+	}
+
+	if (
+		result.decision === "inject_context" &&
+		["sessionStart", "subagentStart", "notification", "postToolUse"].includes(
+			event,
+		)
+	) {
+		return json({ additionalContext: resultString(result, "content") });
+	}
+
+	return json({});
+}
+
+/**
+ * Antigravity hook responses: https://antigravity.google/docs/hooks
+ * Hooks must exit 0; any other exit code is logged and ignored (fail open).
+ */
+function mapAntigravityHookResult(
+	result: HookResult,
+	hook: HookRuntimeHook,
+): MappedHookResult {
+	const event = hook.targetEvent ?? hook.event;
+	const reason = resultMessage(result);
+	const json = (output: UnknownRecord): MappedHookResult => ({
+		stdout: `${JSON.stringify(output)}\n`,
+		stderr: "",
+		exitCode: 0,
+	});
+	const systemMessage = (text: string | undefined) =>
+		text ? [{ systemMessage: { systemMessage: text } }] : [];
+
+	if (event === "PreToolUse") {
+		if (result.decision === "block") {
+			return json({ decision: "deny", reason: blockMessage(result) });
+		}
+
+		if (result.decision === "ask") {
+			return json({ decision: "ask", reason });
+		}
+
+		return json({ decision: "allow", reason });
+	}
+
+	if (event === "Stop") {
+		return result.decision === "block"
+			? json({ decision: "continue", reason: blockMessage(result) })
+			: json({ decision: "stop" });
+	}
+
+	if (
+		event === "SessionStart" ||
+		event === "PreInvocation" ||
+		event === "PostInvocation"
+	) {
+		if (result.decision === "block" && event === "PreInvocation") {
+			return json({
+				injectSteps: systemMessage(blockMessage(result)),
+				terminationBehavior: "terminate",
+			});
+		}
+
+		if (result.decision === "inject_context") {
+			return json({
+				injectSteps: systemMessage(resultString(result, "content")),
+			});
+		}
+	}
+
+	return json({});
+}
+
+function parseJsonObject(value: unknown): UnknownRecord | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+
+	try {
+		const parsed: unknown = JSON.parse(value);
+		return isRecord(parsed) ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function mapVsCodeHookResult(

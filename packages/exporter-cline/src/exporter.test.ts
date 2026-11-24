@@ -105,7 +105,107 @@ describe("exportCline", () => {
 		expect(mcp.mcpServers.docs.env).toEqual({ DOCS_MODE: "plugin" });
 		expect(mcp.mcpServers.docs.autoApprove).toEqual([]);
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportCline(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, ".cline/skills/review/references/guide.md")).toBe(
+			"Guide",
+		);
+		expect(readText(bundle, ".cline/bundle-files/standards/style.md")).toBe(
+			"Style",
+		);
+		expect(readText(bundle, ".cline/skills/review/SKILL.md")).toContain(
+			"Read ../../bundle-files/standards/style.md, then dispatch ../../agents/critic.yaml.",
+		);
+		const agent = readText(bundle, ".cline/agents/critic.yaml");
+		expect(agent).toContain('tools: ["read_files","search_codebase"]');
+		expect(agent).toContain("maxIterations: 5");
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).not.toContain("read-only-agent");
+	});
+
+	test("keeps read-only access when explicit tools are also set", () => {
+		const bundle = exportCline({
+			...bundleFilesPlugin,
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				tools: [{ id: "Read", kind: "tool" as const }],
+			})),
+		});
+
+		expect(readText(bundle, ".cline/agents/critic.yaml")).toContain(
+			'tools: ["read_files","search_codebase"]',
+		);
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportCline({
+			...bundleFilesPlugin,
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				files: [{ path: "SKILL.md", content: "shadow" }],
+			})),
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: [target],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+			targetMetadata: { [target]: { maxIterations: 5 } },
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleClinePlugin = {
 	manifest: {

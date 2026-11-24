@@ -4,7 +4,8 @@ OIAP exists to give plugin authors one stable authoring model and many target
 bundle exporters. Authors define a plugin once using host-neutral primitives.
 OIAP validates that definition, normalizes it into a portable intermediate
 representation, and exports or installs host-native bundles for agent harnesses
-such as Claude Code, Codex, Cline, Cursor, VS Code Copilot Chat, OpenClaw,
+such as Claude Code, Codex, Cline, Cursor, VS Code Copilot Chat, GitHub Copilot
+CLI, Windsurf, OpenClaw,
 Google Antigravity, and future targets.
 
 The exporter scope is bundle generation. OIAP produces validated bundle
@@ -147,7 +148,7 @@ agent ecosystem:
 | Codex | Plugin/config package, skills, `AGENTS.md`, hooks, MCP, rules, custom agents |
 | Cline | Project rules, Agent Skills, file hooks, MCP config, project agents |
 | OpenCode | Skill/rule assets plus JavaScript extension assets where supported |
-| GitHub Copilot CLI | Thin skill or instruction bundle until richer surfaces are confirmed |
+| GitHub Copilot CLI | Plugin package (`plugin.json`), skills, commands, custom agents, hooks, MCP |
 | VS Code Copilot Chat | Workspace custom instructions and editor-focused guidance |
 | Aider | Config, read-context files, slash-command guidance, watch-comment workflows |
 | OpenClaw | Conservative skill and instruction bundle until official surfaces are confirmed |
@@ -161,6 +162,7 @@ agent ecosystem:
 | Pi coding agent | Thin skill bundle until official surfaces are confirmed |
 | Cursor | Plugin package, rules, skills, commands, custom agents, hooks, MCP |
 | Google Antigravity | Workspace rules, Agent Skills, workflow markdown, MCP configuration, permission fragments, task group guidance |
+| Windsurf (Devin Desktop) | Workspace rules, Agent Skills, subagents, hooks, MCP config |
 
 This table is not an adoption workflow. It is an export matrix: each row answers
 what kind of bundle OIAP can generate for a host. For the living capability
@@ -439,12 +441,43 @@ export interface SkillAsset {
   description: string;
   instructions: InstructionModuleRef;
   assets?: PackageAssetRef[];
+  files?: PluginFile[];
   targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 }
 ```
 
 Targets without native skills can still receive the skill content as rules,
 instructions, or generated documentation with a degradation entry.
+
+### Bundled Files
+
+Skills and agents often read files at run time: templates, schemas, review
+standards. `SkillAsset.files` ships files beside a skill's `SKILL.md`, with
+paths relative to the skill directory. Plugin-level `resources` ship files
+shared by several skills or agents. `pluginFiles(directory)` reads a directory
+into `PluginFile`s; symbolic links are skipped.
+
+```ts
+export interface PluginFile {
+  path: string;
+  content: string | Uint8Array;
+  mode?: number;
+}
+```
+
+Each exporter chooses where these files go, so instructions must not hardcode
+bundle paths. Text may use two tokens instead:
+
+| Token | Resolves to |
+| --- | --- |
+| `${OIAP_PLUGIN_ROOT}` | The directory holding `resources`. |
+| `${OIAP_AGENT_FILE:<agent id>}` | The exported file of that agent. |
+
+When the host expands a plugin root variable at run time, such as Claude
+Code's `${CLAUDE_PLUGIN_ROOT}`, tokens resolve through it. Otherwise they
+resolve to a path relative to the file that contains them, and the report
+records a `plugin-root-variable` degradation. Two files written to the same
+bundle path, such as a resource that shadows a generated agent, are an error.
 
 ### Hook
 
@@ -494,6 +527,29 @@ The plugin author declares the desired delegation shape once. Target exporters
 map it to Claude subagents, Codex custom agents, Factory Droids, Trae custom
 agents, Antigravity task groups, Kiro hooks/spec tasks, MCP calls, or sequential
 fallback instructions.
+
+Agents themselves are `AgentDefinition`s. `access: "read-only"` asks for an
+agent that cannot modify the workspace. Exporters map it to the host's own
+control (a Claude tool allowlist, a Cursor read-only flag, an OpenCode
+permission map) and report a `read-only-agent` degradation where the host has
+none. `tools` remains a pass-through list of host tool names and takes
+precedence over `access` on hosts that accept it. `targetMetadata` for the
+target is merged last, so it can override any generated field, including the
+read-only mapping; use it only for fields OIAP does not model.
+
+```ts
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  description: string;
+  instructions: InstructionModuleRef;
+  tools?: ToolRef[];
+  access?: "read-only" | "read-write";
+  model?: string;
+  delegation?: DelegationStrategyRef;
+  targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
+}
+```
 
 ### Tool Surface
 

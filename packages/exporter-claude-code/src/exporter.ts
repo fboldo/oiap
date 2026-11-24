@@ -21,7 +21,15 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import {
 	renderHookRuntimeCommand,
 	renderHookRuntimeFiles,
@@ -120,9 +128,16 @@ function isPluginIr(plugin: ClaudeCodePluginInput): plugin is PluginIr {
 }
 
 function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
-	const pluginFiles = [
+	const generatedFiles = [
 		renderPluginManifest(ir),
-		...ir.skills.map((skill) => renderSkill(skill, ir.instructions)),
+		...ir.skills.flatMap((skill) => [
+			renderSkill(skill, ir.instructions),
+			...renderPluginFiles(
+				skill.files,
+				`skills/${slug(skill.id)}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		]),
 		...ir.commands.map((command) =>
 			renderCommand(command, ir.invocations, ir.instructions),
 		),
@@ -133,7 +148,19 @@ function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
 		renderPolicyEvidence(ir.policies),
 		renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			"",
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: "",
+		rootVariable: "$" + "{CLAUDE_PLUGIN_ROOT}",
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [agent.id, agentPath(agent)]),
+		),
+	});
 	const report = createExportReport(ir);
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
@@ -249,16 +276,27 @@ function renderAgent(
 			name: agent.name,
 			description: agent.description,
 			model: agent.model,
-			tools: agent.tools?.map((tool) => tool.id).join(","),
+			tools: agentTools(agent),
+			...targetMetadata(agent.targetMetadata),
 		},
 		body,
 	);
 
-	return textFile(
-		`agents/${slug(agent.id)}.md`,
-		content,
-		sourceRef(agent.id, "agent"),
-	);
+	return textFile(agentPath(agent), content, sourceRef(agent.id, "agent"));
+}
+
+function agentPath(agent: AgentDefinition): string {
+	return `agents/${slug(agent.id)}.md`;
+}
+
+const READ_ONLY_TOOLS = ["Read", "Grep", "Glob"];
+
+function agentTools(agent: AgentDefinition): string | undefined {
+	if (agent.tools) {
+		return agent.tools.map((tool) => tool.id).join(",");
+	}
+
+	return agent.access === "read-only" ? READ_ONLY_TOOLS.join(",") : undefined;
 }
 
 function renderHookFiles(hooks: HookDefinition[]): RenderedFile[] {
@@ -398,6 +436,12 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 	);
 }
 
+const BUNDLE_FILE_SUPPORT = {
+	target: CLAUDE_CODE_TARGET,
+	files: true,
+	rootVariable: true,
+};
+
 function createExportReport(ir: PluginIr): ExportReport {
 	const mappedCapabilities = collectMappedCapabilities(ir);
 	const degradedCapabilities = collectDegradedCapabilities(ir);
@@ -459,7 +503,9 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degradations: CapabilityDegradation[] = [];
+	const degradations: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+	];
 
 	if (ir.rules.length > 0 || hasStandaloneInstructions(ir)) {
 		degradations.push({
@@ -519,7 +565,9 @@ function collectIssues(
 	degradedCapabilities: CapabilityDegradation[],
 	unsupportedCapabilities: UnsupportedCapability[],
 ): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+	];
 
 	if (!ir.manifest) {
 		issues.push({
@@ -577,7 +625,10 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 }
 
 function validateClaudeCodeBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
 	const filePaths = new Set(bundle.files.map((file) => file.path));
 
 	if (!filePaths.has(".claude-plugin/plugin.json")) {
@@ -673,7 +724,10 @@ function withFrontmatter(
 }
 
 function targetMetadata(
-	metadata: CommandAsset["targetMetadata"] | SkillAsset["targetMetadata"],
+	metadata:
+		| CommandAsset["targetMetadata"]
+		| SkillAsset["targetMetadata"]
+		| AgentDefinition["targetMetadata"],
 ): Record<string, unknown> {
 	return metadata?.[CLAUDE_CODE_TARGET] ?? {};
 }

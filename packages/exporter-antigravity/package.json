@@ -33,7 +33,8 @@
 		"typecheck": "tsc -p tsconfig.json --noEmit"
 	},
 	"dependencies": {
-		"@oiap/core": "workspace:*"
+		"@oiap/core": "workspace:*",
+		"@oiap/runtime": "workspace:*"
 	},
 	"peerDependencies": {
 		"typescript": "^5"

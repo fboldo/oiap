@@ -108,7 +108,112 @@ describe("exportCodex", () => {
 		expect(mcp.docs.enabled_tools).toEqual(["search"]);
 		expect(mcp.docs.bearer_token_env_var).toBe("DOCS_TOKEN");
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportCodex(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(readText(bundle, "skills/review/references/guide.md")).toBe("Guide");
+		expect(readText(bundle, "standards/style.md")).toBe("Style");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"Read ../../standards/style.md, then dispatch ../../.codex/agents/critic.toml.",
+		);
+		expect(readText(bundle, ".codex/agents/critic.toml")).not.toContain(
+			"sandbox_mode",
+		);
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).toContain("read-only-agent");
+	});
+
+	test("renders agent targetMetadata as valid TOML", () => {
+		const bundle = exportCodex({
+			...bundleFilesPlugin,
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				targetMetadata: {
+					codex: {
+						nickname_candidates: ["Critic"],
+						nested: { a: 1, "b.c": "x" },
+						dropped: null,
+					},
+				},
+			})),
+		});
+		const agentFile = bundle.files.find((file) =>
+			file.path.startsWith(".codex/agents/"),
+		);
+		const parsed = Bun.TOML.parse(String(agentFile?.content)) as Record<
+			string,
+			unknown
+		>;
+
+		expect(parsed.nickname_candidates).toEqual(["Critic"]);
+		expect(parsed.nested).toEqual({ a: 1, "b.c": "x" });
+		expect("dropped" in parsed).toBe(false);
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportCodex({
+			...bundleFilesPlugin,
+			resources: [{ path: ".codex/agents/critic.toml", content: "shadow" }],
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: ["codex"],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleCodexPlugin = {
 	manifest: {

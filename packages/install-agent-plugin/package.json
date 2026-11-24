@@ -38,9 +38,11 @@
 		"@oiap/exporter-codex": "workspace:*",
 		"@oiap/exporter-cursor": "workspace:*",
 		"@oiap/exporter-gemini-cli": "workspace:*",
+		"@oiap/exporter-github-copilot-cli": "workspace:*",
 		"@oiap/exporter-openclaw": "workspace:*",
 		"@oiap/exporter-opencode": "workspace:*",
 		"@oiap/exporter-vscode-copilot": "workspace:*",
+		"@oiap/exporter-windsurf": "workspace:*",
 		"esbuild": "^0.27.0"
 	},
 	"peerDependencies": {

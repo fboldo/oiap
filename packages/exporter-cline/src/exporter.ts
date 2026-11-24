@@ -22,7 +22,15 @@ import type {
 	UnsupportedCapability,
 	ValidationIssue,
 } from "@oiap/core";
-import { defineExporter, toPluginIr } from "@oiap/core";
+import {
+	bundleFileFindings,
+	defineExporter,
+	duplicateFileIssues,
+	renderPluginFiles,
+	resolveBundlePaths,
+	toPluginIr,
+	unresolvedTokenIssues,
+} from "@oiap/core";
 import { renderHookRuntimeFiles, unsupportedHookIds } from "@oiap/runtime";
 import { CLINE_TARGET, clineProfile } from "./profile";
 
@@ -142,21 +150,37 @@ function isPluginIr(plugin: ClinePluginInput): plugin is PluginIr {
 function renderClineFiles(ir: PluginIr): RenderedFile[] {
 	const usedRulePaths = new Set<string>();
 	const usedSkillSlugs = new Set<string>();
-	const usedAgentSlugs = new Set<string>();
+	const agentSlugs = reserveAgentSlugs(ir.agents);
 	const report = createExportReport(ir);
-	const pluginFiles = [
+	const generatedFiles = [
 		renderTargetManifest(ir),
 		...renderProjectRuleFiles(ir.rules, usedRulePaths),
 		...renderInstructionRules(ir, usedRulePaths),
 		...renderSkills(ir.skills, ir.instructions, usedSkillSlugs),
 		...renderCommandsAsSkills(ir, usedSkillSlugs),
-		...renderAgents(ir.agents, ir.instructions, usedAgentSlugs),
+		...renderAgents(ir.agents, ir.instructions, agentSlugs),
 		...renderHookFiles(ir),
 		...renderMcpFiles(ir.tools),
 		...renderPolicyEvidence(ir.policies),
 		...renderRuntimeModules(ir.runtimeModules),
 		renderPackageReadme(ir),
+		...renderPluginFiles(
+			ir.resources,
+			resourceRoot(ir),
+			sourceRef(getManifest(ir).id, "resource"),
+		),
 	];
+	// Cline has no plugin root variable in skill or agent text, so bundle
+	// paths are resolved relative to the file that references them.
+	const pluginFiles = resolveBundlePaths(generatedFiles, {
+		resourceRoot: resourceRoot(ir),
+		agentFiles: Object.fromEntries(
+			ir.agents.map((agent) => [
+				agent.id,
+				agentPath(agentSlugs.get(agent.id) ?? slug(agent.id, "agent")),
+			]),
+		),
+	});
 	const sourceMap = createSourceMap(pluginFiles);
 	const bundleManifest = createBundleManifest(ir, pluginFiles);
 
@@ -265,7 +289,7 @@ function renderSkills(
 	instructions: InstructionModule[],
 	usedSkillSlugs: Set<string>,
 ): RenderedFile[] {
-	return skills.map((skill) => {
+	return skills.flatMap((skill) => {
 		const instruction = findInstruction(instructions, skill.instructions.id);
 		const skillSlug = reserveSlug(
 			slug(skill.name || skill.id, skill.id),
@@ -280,11 +304,18 @@ function renderSkills(
 			renderSkillBody(skill, instruction),
 		);
 
-		return textFile(
-			`.cline/skills/${skillSlug}/SKILL.md`,
-			content,
-			sourceRef(skill.id, "skill"),
-		);
+		return [
+			textFile(
+				`.cline/skills/${skillSlug}/SKILL.md`,
+				content,
+				sourceRef(skill.id, "skill"),
+			),
+			...renderPluginFiles(
+				skill.files,
+				`.cline/skills/${skillSlug}`,
+				sourceRef(skill.id, "skill-file"),
+			),
+		];
 	});
 }
 
@@ -328,18 +359,17 @@ function renderCommandsAsSkills(
 function renderAgents(
 	agents: AgentDefinition[],
 	instructions: InstructionModule[],
-	usedAgentSlugs: Set<string>,
+	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
 		const instruction = findInstruction(instructions, agent.instructions.id);
-		const agentSlug = reserveSlug(
-			slug(agent.name || agent.id, agent.id),
-			usedAgentSlugs,
-		);
+		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
 		const frontmatter = omitUndefined({
 			name: agentSlug,
 			description: agent.description,
 			modelId: agent.model,
+			tools: agentTools(agent),
+			...targetMetadata(agent.targetMetadata),
 		});
 		const content = withFrontmatter(
 			frontmatter,
@@ -347,11 +377,47 @@ function renderAgents(
 		);
 
 		return textFile(
-			`.cline/agents/${agentSlug}.yaml`,
+			agentPath(agentSlug),
 			content,
 			sourceRef(agent.id, "agent"),
 		);
 	});
+}
+
+function reserveAgentSlugs(agents: AgentDefinition[]): Map<string, string> {
+	const usedAgentSlugs = new Set<string>();
+
+	return new Map(
+		agents.map((agent) => [
+			agent.id,
+			reserveSlug(slug(agent.name || agent.id, agent.id), usedAgentSlugs),
+		]),
+	);
+}
+
+function agentPath(agentSlug: string): string {
+	return `.cline/agents/${agentSlug}.yaml`;
+}
+
+/**
+ * Cline built-in tools that only read the workspace. Configured agents with a
+ * `tools` list only receive those tools (sdk/packages/core/src/runtime/
+ * orchestration/runtime-builder.ts, filterToolsForConfiguredAgent).
+ */
+const READ_ONLY_TOOLS = ["read_files", "search_codebase"];
+
+/**
+ * Explicit OIAP tool refs stay in the agent body because Cline validates tool
+ * ids against its own catalog, so they never restrict the agent. Read-only
+ * access is therefore mapped whether or not `tools` is set.
+ */
+function agentTools(agent: AgentDefinition): string[] | undefined {
+	return agent.access === "read-only" ? READ_ONLY_TOOLS : undefined;
+}
+
+/** Workspace bundle: resources live under `.cline/<plugin slug>/` so they stay out of the project root. */
+function resourceRoot(ir: PluginIr): string {
+	return `.cline/${slug(getManifest(ir).id, "oiap-plugin")}`;
 }
 
 function renderHookFiles(ir: PluginIr): RenderedFile[] {
@@ -787,6 +853,9 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		...(ir.policies.length > 0
 			? ["- `.oiap/policy.json` policy evidence"]
 			: []),
+		...(ir.resources && ir.resources.length > 0
+			? [`- \`${resourceRoot(ir)}/\` plugin resources`]
+			: []),
 		"",
 		"See `.oiap/capability-report.json` for fidelity details and degradations.",
 		"",
@@ -829,6 +898,12 @@ function createSourceMap(files: RenderedFile[]): ClineSourceMap {
 	};
 }
 
+const BUNDLE_FILE_SUPPORT = {
+	target: CLINE_TARGET,
+	files: true,
+	rootVariable: false,
+};
+
 function createExportReport(ir: PluginIr): ExportReport {
 	const unsupportedCapabilities = collectUnsupportedCapabilities(ir);
 	const degradedCapabilities = collectDegradedCapabilities(ir);
@@ -846,7 +921,23 @@ function createExportReport(ir: PluginIr): ExportReport {
 		mappedCapabilities: collectMappedCapabilities(ir),
 		degradedCapabilities,
 		unsupportedCapabilities,
-		issues: [],
+		issues: [
+			...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).issues,
+			...degradedCapabilities.map(
+				(degradation): ValidationIssue => ({
+					severity: "warning",
+					code: `degraded-${degradation.capability.kind}`,
+					message: degradation.reason,
+				}),
+			),
+			...unsupportedCapabilities.map(
+				(unsupported): ValidationIssue => ({
+					severity: unsupported.required ? "error" : "warning",
+					code: `unsupported-${unsupported.capability.kind}`,
+					message: unsupported.reason,
+				}),
+			),
+		],
 	};
 }
 
@@ -888,7 +979,9 @@ function collectMappedCapabilities(ir: PluginIr): HostCapability[] {
 }
 
 function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
-	const degraded: CapabilityDegradation[] = [];
+	const degraded: CapabilityDegradation[] = [
+		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
+	];
 	const supportedHooks = supportedClineHooks(ir.hooks);
 	const unsupportedHookEvents = ir.hooks.filter(
 		(hook) => !toClineHookEvent(hook.event),
@@ -994,7 +1087,10 @@ function collectUnsupportedCapabilities(ir: PluginIr): UnsupportedCapability[] {
 }
 
 function validateClineBundle(bundle: TargetBundle): ValidationIssue[] {
-	const issues: ValidationIssue[] = [];
+	const issues: ValidationIssue[] = [
+		...duplicateFileIssues(bundle.files),
+		...unresolvedTokenIssues(bundle.files),
+	];
 
 	if (bundle.target !== CLINE_TARGET) {
 		issues.push({
@@ -1012,20 +1108,7 @@ function validateClineBundle(bundle: TargetBundle): ValidationIssue[] {
 		});
 	}
 
-	const seenPaths = new Set<string>();
-
 	for (const file of bundle.files) {
-		if (seenPaths.has(file.path)) {
-			issues.push({
-				severity: "error",
-				code: "cline-duplicate-file",
-				message: `Duplicate output path: ${file.path}.`,
-				path: file.path,
-			});
-		}
-
-		seenPaths.add(file.path);
-
 		if (file.path.endsWith(".json") && typeof file.content === "string") {
 			try {
 				JSON.parse(file.content);

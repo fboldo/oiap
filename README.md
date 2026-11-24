@@ -12,11 +12,12 @@
 		<td align="center" valign="middle"><img src="assets/icons/githubcopilot.png" alt="GitHub Copilot" width="20" height="20" /> VS Code Copilot</td>
 		<td align="center" valign="middle"><img src="assets/icons/cursor.png" alt="Cursor" width="20" height="20" /> Cursor</td>
 		<td align="center" valign="middle">Cline</td>
+		<td align="center" valign="middle">Windsurf</td>
 		<td align="center" valign="middle"><img src="assets/icons/openclaw-color.png" alt="OpenClaw" width="20" height="20" /> OpenClaw</td>
 		<td align="center" valign="middle"><img src="assets/icons/antigravity-color.png" alt="Google Antigravity" width="20" height="20" /> Google Antigravity</td>
 	</tr>
 	<tr>
-		<td colspan="7" align="center"><strong>and many more...</strong></td>
+		<td colspan="8" align="center"><strong>and many more...</strong></td>
 	</tr>
 </table>
 
@@ -81,6 +82,22 @@ Build the same plugin for every registered exporter:
 ```sh
 npx oiap build oiap.plugin.ts --out dist/oiap
 ```
+
+## Two Ways to Ship a Plugin
+
+You write the plugin once in `oiap.plugin.ts`. How users get it depends on the
+host:
+
+| | Commit host files with `oiap sync` | Build at install time with `install-agent-plugin` |
+| --- | --- | --- |
+| How it works | You run `oiap sync` and commit the generated host files; the [OIAP GitHub Action](#commit-host-files-with-oiap-sync) fails pull requests when they are out of date. | Users run `npx install-agent-plugin owner/repo --agent <target>`, which builds the bundle from your source on their machine. You can also wrap it in your own CLI with `installPlugin()`. |
+| Users install with | Each host's own command: `claude plugin marketplace add owner/repo`, `codex plugin marketplace add`, `copilot plugin marketplace add`, `gemini extensions install`, `agy plugin install` | `install-agent-plugin`, or your CLI |
+| Updates | The host's own update, from your default branch | Users run the installer again |
+| Best for | Hosts that install from git: Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, VS Code Copilot, Antigravity, OpenClaw | Hosts that read files from the user's project: Cline, Windsurf, OpenCode; installing into a specific project or user directory |
+
+Most plugins use both: commit synced files so each host's native install works,
+and document `install-agent-plugin` for project-local hosts. See
+[Distribute Your Plugin](#distribute-your-plugin).
 
 ## Agent Skill
 
@@ -181,14 +198,80 @@ bundle manifest, source map, and capability report.
 
 ## Distribute Your Plugin
 
-You can distribute an OIAP plugin as a normal source repository. Consumers do
-not need a separate JSON declaration file or a prebuilt bundle: the installer
-discovers exported `definePlugin(...)` declarations directly from TypeScript and
+There are two ways to get an OIAP plugin to users, and a plugin can use both
+(see [Two Ways to Ship a Plugin](#two-ways-to-ship-a-plugin)).
+
+### Commit host files with `oiap sync`
+
+Most agent hosts install plugins straight from a git repository:
+`claude plugin marketplace add owner/repo`, `codex plugin marketplace add
+owner/repo`, `copilot plugin marketplace add owner/repo`,
+`gemini extensions install <url>`, `agy plugin install <url>`. They read their
+own manifest and component files from the default branch, so those files have to
+be committed there. `oiap sync` generates them from your OIAP definition, the
+same way a lockfile or generated client is committed next to its source.
+
+```sh
+bunx @oiap/cli sync            # reads oiap.plugin.ts, writes host files, commit the result
+bunx @oiap/cli sync --check    # CI: exit 1 if the committed files are out of date
+```
+
+`oiap sync` writes every target in the manifest's `supportedTargets` that
+installs from git (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI,
+VS Code Copilot, OpenClaw, Antigravity):
+
+- Hosts that only install the repository root (Gemini CLI, Antigravity,
+  OpenClaw) go at the root and share files such as `skills/` when their copies
+  match.
+- Other hosts share the root when no host would load another host's files, and
+  move to `plugins/<target>/` otherwise. `--layout plugins` always uses
+  `plugins/<target>/` for them.
+- It writes the marketplace catalogs that point each host at its plugin
+  (`.claude-plugin/marketplace.json`, `.agents/plugins/marketplace.json`,
+  `.cursor-plugin/marketplace.json`, `.github/plugin/marketplace.json`) and
+  `.oiap/sync.json`, which records the generated files so later syncs remove
+  stale ones. It never overwrites a file it did not write unless you pass
+  `--force`, and it leaves your `README.md` alone.
+- Versions come from `manifest.version`, so every host manifest stays in
+  lockstep.
+- OpenClaw's native plugin needs its own `package.json` and entry file at the
+  repository root. If your repository already has a `package.json`, sync stops
+  rather than overwrite it; leave OpenClaw out with `--target`, or publish it
+  from a separate repository.
+
+Check the files on every pull request with the OIAP GitHub Action. It installs
+your dependencies, runs `oiap sync --check`, annotates degraded or unsupported
+targets, and writes a summary to the job. It never commits.
+
+```yaml
+name: Plugin
+on: [pull_request]
+jobs:
+  oiap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fboldo/oiap@v0.3.0
+        with:
+          plugin: oiap.plugin.ts
+```
+
+Gemini CLI installs the latest GitHub Release instead of the default branch when
+a repository has releases. Keep releases off a plugin repository that targets
+Gemini CLI, or attach the full tree to them.
+
+### Build at install time with `install-agent-plugin`
+
+Cline, Windsurf, OpenCode and other hosts that read files from the user's
+project do not install from git. Users install them with `install-agent-plugin`,
+which builds from your OIAP source at install time. It works for every target,
+so it is also the way to install into a specific project or user directory. Consumers do not need a
+separate JSON declaration file or a prebuilt bundle: the installer discovers
+exported `definePlugin(...)` declarations directly from TypeScript and
 JavaScript source files, then installs the selected plugin for the requested
 agent target.
 
-For example, after publishing a repository that contains `oiap.plugin.ts`, users
-can inspect the installable plugin declarations with:
+List the installable plugin declarations in a repository:
 
 ```sh
 npx install-agent-plugin your-org/your-plugin --list
@@ -197,7 +280,7 @@ npx install-agent-plugin your-org/your-plugin --list
 Install a specific plugin into the target's local/project plugin directory:
 
 ```sh
-npx install-agent-plugin your-org/your-plugin --plugin review-guard --agent codex
+npx install-agent-plugin your-org/your-plugin --plugin review-guard --agent cline
 ```
 
 Install into the target's global user plugin directory:
@@ -212,16 +295,25 @@ Pin installation to a branch, tag, or commit:
 npx install-agent-plugin your-org/your-plugin --ref v1.0.0 --plugin review-guard --agent claude-code
 ```
 
+To give users your own install command instead, call `installPlugin()` from
+`@oiap/core` in a small CLI that imports your plugin declaration; see the
+[discovery-installer-cli example](examples/discovery-installer-cli).
+
 During development, install from a local checkout:
 
 ```sh
 npx install-agent-plugin . --plugin review-guard --agent vscode-copilot-chat --overwrite
 ```
 
-The installer chooses local and global destinations from each target profile, so
-users normally only choose `--agent` and optionally `--global`. Pass `--out <dir>`
-when you want to materialize the generated bundle somewhere explicit for review,
-CI, or debugging instead of installing it into the target's default location.
+The installer chooses local and global destinations from each target profile
+when the target documents a stable install location. Pass `--out <dir>` when you
+want to materialize the generated bundle somewhere explicit for review, CI, or
+debugging instead of installing it into the target's default location.
+
+Some targets only define part of that contract. For `vscode-copilot-chat`, OIAP
+uses the workspace-local `.github/plugins/<pluginId>` convention for local
+installs, but does not claim a default global path; use `--out` when you want
+an explicit materialized directory instead of the profile default.
 
 When the plugin repository has a `package.json`, `install-agent-plugin` installs
 dependencies before loading the selected plugin declaration. For cloned
@@ -239,13 +331,15 @@ self-contained Node ESM module for the selected plugin.
 
 For plugin authors, the distribution checklist is intentionally small:
 
-1. Export a `definePlugin(...)` declaration from a source file in your repository.
-2. Keep the manifest `id`, `version`, and `supportedTargets` accurate.
-3. Document the
-	`npx install-agent-plugin <owner>/<repo> --plugin <id> --agent <target>`
-	command for the targets you support.
-4. Use tags or release branches when you want users to install a stable version
-	with `--ref`.
+1. Export a `definePlugin(...)` declaration from `oiap.plugin.ts`.
+2. Keep the manifest `id`, `version`, `author`, and `supportedTargets` accurate.
+	Bump `version` when you release: Codex, Antigravity, and Claude Code (when
+	the manifest has a version) only update installed plugins when it changes.
+3. Run `oiap sync` and commit the generated files; add the OIAP GitHub Action
+	so pull requests fail when they are out of date.
+4. Document each host's install command, and
+	`npx install-agent-plugin <owner>/<repo> --plugin <id> --agent <target>` for
+	project-local hosts.
 
 ## Supported Targets
 
@@ -259,9 +353,11 @@ The CLI currently registers these exporters:
 | `codex` | [@oiap/exporter-codex](packages/exporter-codex) | Codex plugin and project-configuration artifacts |
 | `cursor` | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor plugin artifacts |
 | `gemini-cli` | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI extension artifacts |
+| `github-copilot-cli` | [@oiap/exporter-github-copilot-cli](packages/exporter-github-copilot-cli) | GitHub Copilot CLI plugin artifacts |
 | `openclaw` | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw plugin package artifacts |
 | `opencode` | [@oiap/exporter-opencode](packages/exporter-opencode) | OpenCode project config and plugin bridge artifacts |
 | `vscode-copilot-chat` | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat customization artifacts |
+| `windsurf` | [@oiap/exporter-windsurf](packages/exporter-windsurf) | Windsurf (Devin Desktop) workspace rules, skills, agents, hooks, and MCP artifacts |
 
 For researched and planned platform coverage, see the
 [Platform Matrix](MATRIX.md).
@@ -280,9 +376,11 @@ For researched and planned platform coverage, see the
 | [@oiap/exporter-codex](packages/exporter-codex) | Codex exporter |
 | [@oiap/exporter-cursor](packages/exporter-cursor) | Cursor exporter |
 | [@oiap/exporter-gemini-cli](packages/exporter-gemini-cli) | Gemini CLI exporter |
+| [@oiap/exporter-github-copilot-cli](packages/exporter-github-copilot-cli) | GitHub Copilot CLI exporter |
 | [@oiap/exporter-openclaw](packages/exporter-openclaw) | OpenClaw exporter |
 | [@oiap/exporter-opencode](packages/exporter-opencode) | OpenCode exporter |
 | [@oiap/exporter-vscode-copilot](packages/exporter-vscode-copilot) | VS Code Copilot Chat exporter |
+| [@oiap/exporter-windsurf](packages/exporter-windsurf) | Windsurf exporter |
 
 ## Examples
 
@@ -295,6 +393,9 @@ agent plugin patterns:
   portable instruction/style plugin.
 - [feature-dev](examples/feature-dev) demonstrates commands, prompt modules,
   and custom agent definitions.
+- [elephant-goldfish-model](examples/elephant-goldfish-model) ports Google's
+  multi-harness EGM plugin: skill files, shared resources, path tokens, and
+  read-only reviewer agents.
 - [discovery-installer-cli](examples/discovery-installer-cli) demonstrates a
 	plugin-owned installer CLI built on source discovery primitives.
 

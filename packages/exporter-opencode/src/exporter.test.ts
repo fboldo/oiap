@@ -95,7 +95,95 @@ describe("exportOpenCode", () => {
 			Authorization: "Bearer {env:SEARCH_TOKEN}",
 		});
 	});
+
+	test("ships skill files and resources and resolves bundle paths", () => {
+		const bundle = exportOpenCode(bundleFilesPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(
+			readText(bundle, ".opencode/skills/review/references/guide.md"),
+		).toBe("Guide");
+		expect(readText(bundle, ".opencode/bundle-files/standards/style.md")).toBe(
+			"Style",
+		);
+		expect(readText(bundle, ".opencode/skills/review/SKILL.md")).toContain(
+			"Read ../../bundle-files/standards/style.md, then dispatch ../../agents/critic.md.",
+		);
+		expect(readText(bundle, "README.md")).toContain(".opencode/bundle-files/");
+
+		const agent = readText(bundle, ".opencode/agents/critic.md");
+		expect(agent).toContain('permission: {"edit":"deny","bash":"deny"}');
+		expect(agent).toContain("temperature: 0.1");
+		expect(degradations).toContain("plugin-root-variable");
+		expect(degradations).not.toContain("read-only-agent");
+		expect(bundle.report.status).toBe("degraded");
+	});
+
+	test("reports duplicate bundle files", () => {
+		const bundle = exportOpenCode({
+			...bundleFilesPlugin,
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				files: [{ path: "SKILL.md", content: "shadow" }],
+			})),
+		});
+
+		expect(bundle.report.status).toBe("unsupported");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
 });
+
+const bundleFilesPlugin = {
+	manifest: {
+		id: "bundle-files",
+		name: "Bundle Files",
+		version: "1.0.0",
+		description: "Skill files, resources and path tokens.",
+		categories: [],
+		supportedTargets: ["opencode"],
+	},
+	instructions: [
+		{
+			id: "review-body",
+			purpose: "workflow",
+			triggers: [],
+			body:
+				"Read $" +
+				"{OIAP_PLUGIN_ROOT}/standards/style.md, then dispatch $" +
+				"{OIAP_AGENT_FILE:critic}.",
+		},
+		{
+			id: "critic-body",
+			purpose: "agent",
+			triggers: [],
+			body: "Critique the document.",
+		},
+	],
+	skills: [
+		{
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			instructions: { id: "review-body", kind: "instruction" },
+			files: [{ path: "references/guide.md", content: "Guide" }],
+		},
+	],
+	agents: [
+		{
+			id: "critic",
+			name: "critic",
+			description: "Read-only critic.",
+			instructions: { id: "critic-body", kind: "instruction" },
+			access: "read-only",
+			targetMetadata: { opencode: { temperature: 0.1 } },
+		},
+	],
+	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
 
 const sampleOpenCodePlugin = {
 	manifest: {
