@@ -32,6 +32,12 @@ interface SyncTargetRule {
 	rootOnly: boolean;
 	reads: string[];
 	marketplace?: MarketplaceKind;
+	/**
+	 * Files the exporter writes for project installs that a plugin installed
+	 * from git never loads; in a plugin repository they would configure the
+	 * repository itself, so sync leaves them out.
+	 */
+	projectOnly?: string[];
 }
 
 type MarketplaceKind = "claude" | "codex" | "cursor" | "copilot";
@@ -104,6 +110,8 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 			".mcp.json",
 		],
 		marketplace: "codex",
+		// Codex plugins have no agents, rules or instructions component.
+		projectOnly: ["AGENTS.md", ".codex/"],
 	},
 	// https://cursor.com/docs/reference/plugins
 	cursor: {
@@ -238,6 +246,10 @@ export function planSync(
 	const manifest = getManifest(plugin);
 	const placed = new Map<string, PlacedFile>();
 	declaredReads.clear();
+	optedInPaths.clear();
+	for (const [target, bundle] of bundles) {
+		optedInPaths.set(target, declaredPaths(target, bundle.files));
+	}
 	const cursorBundle = bundles.get("cursor");
 	const cursorPaths = cursorBundle
 		? cursorReads(cursorBundle.files)
@@ -258,12 +270,28 @@ export function planSync(
 			continue;
 		}
 
+		const projectOnly = bundle.files.filter((file) =>
+			rule.projectOnly?.some((entry) =>
+				entry.endsWith("/") ? file.path.startsWith(entry) : file.path === entry,
+			),
+		);
 		const files = bundle.files.filter(
 			(file) =>
+				!projectOnly.includes(file) &&
 				!BUNDLE_ONLY_FILES.has(file.path) &&
 				!file.path.startsWith(".oiap/hooks/") &&
 				!/^\.oiap\/[^/]+-permissions\.json$/.test(file.path),
 		);
+
+		if (projectOnly.length > 0) {
+			notes.push(
+				`${target}: left out ${projectOnly.length} project-only file(s) (${[
+					...new Set(projectOnly.map((file) => file.path.split("/")[0])),
+				].join(
+					", ",
+				)}) that a plugin installed from git never loads; use install-agent-plugin to install them into a project.`,
+			);
+		}
 		let directory = "";
 
 		if (rule.rootOnly) {
@@ -433,7 +461,11 @@ function foreignReads(
 	for (const [path, entry] of placed) {
 		const mine = own.get(path);
 
-		if (reads(target, path) && !mine?.equals(entry.content)) {
+		if (
+			reads(target, path) &&
+			!optsIn(target, path) &&
+			!mine?.equals(entry.content)
+		) {
 			found.push({
 				reader: target,
 				writer: [...entry.owners].join(", "),
@@ -451,7 +483,7 @@ function foreignReads(
 		}
 
 		for (const rootTarget of rootTargets) {
-			if (reads(rootTarget, file.path)) {
+			if (reads(rootTarget, file.path) && !optsIn(rootTarget, file.path)) {
 				found.push({ reader: rootTarget, writer: target, path: file.path });
 			}
 		}
@@ -480,6 +512,57 @@ function reads(target: string, path: string): boolean {
 		}
 		return entry.endsWith("/") ? path.startsWith(entry) : path === entry;
 	});
+}
+
+/**
+ * Files a host's own manifest names explicitly, such as Cursor or Codex
+ * `"mcpServers": "./.mcp.json"`: the author chose to share that file, so
+ * loading it is not a foreign read. Directories (`skills/`) stay protected.
+ */
+const optedInPaths = new Map<string, string[]>();
+
+const MANIFEST_FILES: Record<string, string> = {
+	"claude-code": ".claude-plugin/plugin.json",
+	codex: ".codex-plugin/plugin.json",
+	cursor: ".cursor-plugin/plugin.json",
+};
+
+const COMPONENT_KEYS = [
+	"skills",
+	"agents",
+	"commands",
+	"rules",
+	"hooks",
+	"mcpServers",
+	"lspServers",
+	"apps",
+];
+
+function declaredPaths(target: string, files: RenderedFile[]): string[] {
+	const manifestPath = MANIFEST_FILES[target];
+	const manifestFile = files.find((file) => file.path === manifestPath);
+
+	if (!manifestFile) {
+		return [];
+	}
+
+	const manifest = JSON.parse(String(manifestFile.content)) as Record<
+		string,
+		unknown
+	>;
+
+	return COMPONENT_KEYS.flatMap((key) => {
+		const value = manifest[key];
+		const values = Array.isArray(value) ? value : [value];
+		return values
+			.filter((entry): entry is string => typeof entry === "string")
+			.map((entry) => entry.replace(/^\.\//, ""))
+			.filter((entry) => /\.[a-z]+$/i.test(entry) && !entry.endsWith("/"));
+	});
+}
+
+function optsIn(target: string, path: string): boolean {
+	return (optedInPaths.get(target) ?? []).includes(path);
 }
 
 /**
@@ -732,6 +815,7 @@ export async function syncPluginFile(
 
 	const repoDir = resolve(options.repoDir);
 	const previous = await readLock(repoDir);
+	await matchJsonIndentation(repoDir, bundles);
 	const plan = planSync(
 		plugin,
 		bundles,
@@ -816,6 +900,57 @@ export async function syncPluginFile(
 	}
 
 	return result;
+}
+
+/**
+ * Write generated JSON with the indentation the repository already uses: the
+ * existing file's, else the root package.json's. A first sync then changes
+ * only the values that differ, not every line.
+ */
+async function matchJsonIndentation(
+	repoDir: string,
+	bundles: Map<string, TargetBundle>,
+): Promise<void> {
+	const packageJson = await readOptional(
+		resolveRepoPath(repoDir, "package.json"),
+	);
+	const fallback = packageJson
+		? jsonIndent(packageJson.toString("utf8"))
+		: undefined;
+
+	for (const [target, bundle] of bundles) {
+		const files: RenderedFile[] = [];
+
+		for (const file of bundle.files) {
+			if (!file.path.endsWith(".json") || typeof file.content !== "string") {
+				files.push(file);
+				continue;
+			}
+
+			const existing = await readOptional(resolveRepoPath(repoDir, file.path));
+			const indent = existing
+				? jsonIndent(existing.toString("utf8"))
+				: fallback;
+
+			files.push(indent === undefined ? file : reindent(file, indent));
+		}
+
+		bundles.set(target, { ...bundle, files });
+	}
+}
+
+function jsonIndent(text: string): string | undefined {
+	const match = /^[[{]\s*\n([ \t]+)\S/m.exec(text);
+	return match?.[1];
+}
+
+function reindent(file: RenderedFile, indent: string): RenderedFile {
+	try {
+		const value: unknown = JSON.parse(String(file.content));
+		return { ...file, content: `${JSON.stringify(value, null, indent)}\n` };
+	} catch {
+		return file;
+	}
 }
 
 /**

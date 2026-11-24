@@ -281,6 +281,57 @@ describe("planSync read patterns", () => {
 	});
 });
 
+describe("planSync shared files", () => {
+	test("lets a host share a file its manifest names", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"claude-code",
+					bundle("claude-code", {
+						".claude-plugin/plugin.json": "{}",
+						".mcp.json": '{"mcpServers":{}}',
+					}),
+				],
+				[
+					"cursor",
+					bundle("cursor", {
+						".cursor-plugin/plugin.json": '{"mcpServers":"./.mcp.json"}',
+					}),
+				],
+			]),
+			"root",
+		);
+
+		expect(plan.placements.map((placement) => placement.directory)).toEqual([
+			"",
+			"",
+		]);
+	});
+
+	test("leaves out Codex project-only files", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"codex",
+					bundle("codex", {
+						".codex-plugin/plugin.json": "{}",
+						"AGENTS.md": "rules",
+						".codex/agents/a.toml": "agent",
+					}),
+				],
+			]),
+			"root",
+		);
+		const paths = plan.files.map((file) => file.path);
+
+		expect(paths).not.toContain("AGENTS.md");
+		expect(paths).not.toContain(".codex/agents/a.toml");
+		expect(plan.notes.join("\n")).toContain("project-only");
+	});
+});
+
 describe("planSync with author files", () => {
 	test("moves a host whose root files would overwrite the author's", () => {
 		const plan = planSync(
@@ -464,6 +515,22 @@ export default definePlugin({
 
 		const second = await syncPluginFile({ ...options, check: true });
 		expect(second.differences).toEqual([]);
+	});
+
+	test("writes JSON with the repository's indentation", async () => {
+		const { repo, pluginFile } = fixture();
+		writeFileSync(join(repo, "package.json"), '{\n  "name": "x"\n}\n');
+
+		await syncPluginFile({
+			inputPath: pluginFile,
+			repoDir: repo,
+			layout: "root",
+			check: false,
+		});
+
+		expect(
+			readFileSync(join(repo, ".claude-plugin", "plugin.json"), "utf8"),
+		).toContain('\n  "name": "sample"');
 	});
 
 	test("keeps a stale file the author changed", async () => {
