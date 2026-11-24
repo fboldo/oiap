@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { DiscoveredPluginDeclaration } from "@oiap/core";
 import type * as TypeScript from "typescript";
@@ -36,23 +36,39 @@ export async function bundleInstalledHookRuntime(options: {
 	declaration: DiscoveredPluginDeclaration;
 	outDir: string;
 }): Promise<string[]> {
-	const runtimeDirectory = join(options.outDir, ".oiap", "runtime");
-	const hooksPath = join(runtimeDirectory, "hooks.mjs");
-	const manifest = await readHookRuntimeManifest(
-		join(runtimeDirectory, "manifest.json"),
-	);
-	const source = await bundleHookRuntimeSource({
-		pluginFilePath: options.pluginFilePath,
-		declaration: options.declaration,
-		manifest,
-	});
+	const written: string[] = [];
 
-	if (source === undefined) {
-		return [];
+	for (const runtimeDirectory of await runtimeDirectories(options.outDir)) {
+		const hooksPath = join(runtimeDirectory, "hooks.mjs");
+		const manifest = await readHookRuntimeManifest(
+			join(runtimeDirectory, "manifest.json"),
+		);
+		const source = await bundleHookRuntimeSource({
+			pluginFilePath: options.pluginFilePath,
+			declaration: options.declaration,
+			manifest,
+		});
+
+		if (source !== undefined) {
+			await writeFile(hooksPath, source);
+			written.push(hooksPath);
+		}
 	}
 
-	await writeFile(hooksPath, source);
-	return [hooksPath];
+	return written;
+}
+
+/** `.oiap/runtime/` and any per-target runtime directory inside it. */
+async function runtimeDirectories(outDir: string): Promise<string[]> {
+	const root = join(outDir, ".oiap", "runtime");
+	const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+
+	return [
+		root,
+		...entries
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => join(root, entry.name)),
+	];
 }
 
 /**

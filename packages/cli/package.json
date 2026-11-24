@@ -38,6 +38,7 @@
 	},
 	"dependencies": {
 		"@oiap/core": "workspace:*",
+		"@oiap/exporter-agent-plugins": "workspace:*",
 		"@oiap/exporter-antigravity": "workspace:*",
 		"@oiap/exporter-claude-code": "workspace:*",
 		"@oiap/exporter-cline": "workspace:*",

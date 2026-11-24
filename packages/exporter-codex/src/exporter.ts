@@ -29,8 +29,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -112,12 +114,12 @@ export function exportCodex(plugin: CodexPluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: CodexPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CODEX_TARGET,
+	);
 }
 
 function isPluginIr(plugin: CodexPluginInput): plugin is PluginIr {
@@ -155,6 +157,13 @@ function renderCodexFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Hand-written host files (hook scripts, hooks.json, ...) at the plugin
+		// root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[CODEX_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
@@ -199,7 +208,7 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const hasSkills = ir.skills.length > 0 || ir.commands.length > 0;
 	const hasHooks = supportedCodexHooks(ir.hooks).length > 0;
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id),
 		version: manifest.version,
 		description: manifest.description,
@@ -220,6 +229,10 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 			logo: manifest.logo ? `./${resourcePath(manifest.logo)}` : undefined,
 		}),
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CODEX_TARGET],
+	);
 
 	return jsonFile(
 		".codex-plugin/plugin.json",
@@ -602,6 +615,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `.codex/rules/`: generated project-scoped command rules, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"- Skill files sit beside each `SKILL.md`; plugin resources are written at the bundle root, when present.",
+		"- Target files (`targetFiles.codex`) are copied at the plugin root, relative to this directory.",
 		"## Current Limitations",
 		"OIAP commands are exported as Codex skills. Supported TypeScript hook functions are emitted as a generated raw-JS OIAP runtime; unsupported lifecycle events remain degraded.",
 	];

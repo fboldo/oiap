@@ -202,6 +202,98 @@ describe("exportCline", () => {
 		expect(manifest.logo).toBeUndefined();
 	});
 
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportCline({
+			...sampleClinePlugin,
+			skills: [
+				...sampleClinePlugin.skills,
+				{
+					id: "codex_only",
+					name: "Codex Only",
+					description: "Only for Codex.",
+					instructions: { id: "audit-instructions", kind: "instruction" },
+					targets: ["codex"],
+				},
+			],
+			agents: sampleClinePlugin.agents.map((agent) => ({
+				...agent,
+				targets: ["claude-code" as const],
+			})),
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain(".cline/skills/audit-repo/SKILL.md");
+		expect(paths).not.toContain(".cline/skills/codex-only/SKILL.md");
+		expect(paths).not.toContain(".cline/agents/reviewer.yaml");
+		expect(JSON.stringify(bundle.report)).not.toContain("codex_only");
+		expect(
+			readJson<Record<string, unknown>>(bundle, ".oiap/cline-target.json")
+				.agents,
+		).toBeUndefined();
+	});
+
+	test("merges manifest targetMetadata into the target manifest", () => {
+		const manifest = readJson<Record<string, unknown>>(
+			exportCline({
+				...sampleClinePlugin,
+				manifest: {
+					...sampleClinePlugin.manifest,
+					targetMetadata: {
+						[target]: { version: null, extra: { enabled: true } },
+						codex: { ignored: true },
+					},
+				},
+			}),
+			".oiap/cline-target.json",
+		);
+
+		expect(manifest.version).toBeUndefined();
+		expect(manifest.extra).toEqual({ enabled: true });
+		expect(manifest.ignored).toBeUndefined();
+		expect(manifest.name).toBe("sample-cline");
+	});
+
+	test("writes targetFiles at the bundle root", () => {
+		const bundle = exportCline({
+			...sampleClinePlugin,
+			targetFiles: {
+				[target]: [
+					{
+						path: ".cline/hooks/TaskStart.cjs",
+						content: "// hand-written",
+						mode: 0o755,
+					},
+				],
+				codex: [{ path: "codex-only.txt", content: "nope" }],
+			},
+		});
+		const file = bundle.files.find(
+			(candidate) => candidate.path === ".cline/hooks/TaskStart.cjs",
+		);
+
+		expect(file?.content).toBe("// hand-written");
+		expect(file?.mode).toBe(0o755);
+		expect(file?.source?.primitiveKind).toBe("target-file");
+		expect(bundle.files.map((f) => f.path)).not.toContain("codex-only.txt");
+	});
+
+	test("renders in-place agents from parsed fields", () => {
+		const content = "---\nname: reviewer\nmodel: sonnet\n---\nRaw body.\n";
+		const bundle = exportCline({
+			...sampleClinePlugin,
+			agents: sampleClinePlugin.agents.map((agent) => ({
+				...agent,
+				source: { file: "agents/reviewer.md", content },
+			})),
+		});
+		const agent = readText(bundle, ".cline/agents/reviewer.yaml");
+
+		// Cline agent files use their own keys (modelId), so a Markdown agent
+		// file is not copied verbatim.
+		expect(agent).not.toBe(content);
+		expect(agent).toContain('modelId: "gpt-5.1"');
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportCline({
 			...bundleFilesPlugin,

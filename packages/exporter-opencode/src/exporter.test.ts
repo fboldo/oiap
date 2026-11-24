@@ -193,6 +193,82 @@ describe("exportOpenCode", () => {
 		);
 	});
 
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			skills: [manualSkill, { ...backgroundSkill, targets: ["codex"] }],
+			agents: [{ ...isolatedAgent, targets: ["claude-code"] }],
+		});
+		const paths = bundle.files.map((file) => file.path);
+		const report = readText(bundle, ".oiap/capability-report.json");
+
+		expect(paths).toContain(".opencode/skills/manual/SKILL.md");
+		expect(paths).not.toContain(".opencode/skills/background/SKILL.md");
+		expect(paths).not.toContain(".opencode/agents/isolated.md");
+		expect(report).not.toContain("isolated");
+		expect(report).not.toContain("background");
+	});
+
+	test("merges manifest targetMetadata into opencode.json", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			manifest: {
+				...invocationPlugin.manifest,
+				targetMetadata: {
+					opencode: {
+						$schema: null,
+						autoupdate: false,
+						permission: { webfetch: "ask" },
+					},
+					codex: { ignored: true },
+				},
+			},
+		});
+		const config = readJson<Record<string, unknown>>(bundle, "opencode.json");
+
+		expect(config).not.toHaveProperty("$schema");
+		expect(config.autoupdate).toBe(false);
+		expect(config.permission).toEqual({ webfetch: "ask" });
+		expect(config).not.toHaveProperty("ignored");
+	});
+
+	test("emits target files at the bundle root", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			targetFiles: {
+				opencode: [
+					{
+						path: ".opencode/plugins/custom.js",
+						content: "export const Custom = async () => ({});\n",
+					},
+				],
+				codex: [{ path: "codex-only.txt", content: "no" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, ".opencode/plugins/custom.js")).toBe(
+			"export const Custom = async () => ({});\n",
+		);
+		expect(paths).not.toContain("codex-only.txt");
+	});
+
+	test("emits an in-place agent file unchanged", () => {
+		const content =
+			"---\ndescription: Hand written\nmode: primary\n---\n\nKeep me as is.\n";
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			agents: [
+				{
+					...isolatedAgent,
+					source: { file: "agents/isolated.md", content },
+				},
+			],
+		});
+
+		expect(readText(bundle, ".opencode/agents/isolated.md")).toBe(content);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportOpenCode({
 			...bundleFilesPlugin,

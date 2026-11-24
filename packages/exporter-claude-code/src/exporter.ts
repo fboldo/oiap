@@ -26,8 +26,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -109,12 +111,12 @@ export function exportClaudeCode(plugin: ClaudeCodePluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: ClaudeCodePluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CLAUDE_CODE_TARGET,
+	);
 }
 
 function isPluginIr(plugin: ClaudeCodePluginInput): plugin is PluginIr {
@@ -153,6 +155,13 @@ function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			"",
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Hand-written host files (hooks scripts, extra commands, ...) at the
+		// plugin root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[CLAUDE_CODE_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
@@ -193,7 +202,7 @@ function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
 // https://code.claude.com/docs/en/plugins-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		$schema: "https://json.schemastore.org/claude-code-plugin-manifest.json",
 		name: slug(manifest.id),
 		displayName: manifest.displayName,
@@ -206,6 +215,10 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		keywords: manifestKeywords(manifest),
 		icon: manifest.logo ? `./${resourcePath(manifest.logo)}` : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CLAUDE_CODE_TARGET],
+	);
 
 	return jsonFile(
 		".claude-plugin/plugin.json",
@@ -235,7 +248,7 @@ function renderSkill(
 ): RenderedFile {
 	const instruction = findInstruction(skill.instructions.id, instructions);
 	const body =
-		instruction?.body ??
+		(instruction ? instructionBody(instruction) : undefined) ??
 		`Skill instruction reference not found: ${skill.instructions.id}`;
 	// A skill from skillsFrom() keeps its SKILL.md exactly as written.
 	const content =
@@ -286,7 +299,7 @@ function renderCommand(
 		`# ${commandName}`,
 		invocation?.helpText ??
 			`Command invocation reference not found: ${command.invocation.id}`,
-		prompt?.body,
+		prompt ? instructionBody(prompt) : undefined,
 		...(invocation?.examples ?? []).map((example) => `- ${example}`),
 	]
 		.filter(Boolean)
@@ -314,9 +327,18 @@ function renderAgent(
 	agent: AgentDefinition,
 	instructions: InstructionModule[],
 ): RenderedFile {
+	// An agent from agentsFrom() keeps its Markdown file exactly as written.
+	if (agent.source) {
+		return textFile(
+			agentPath(agent),
+			agent.source.content,
+			sourceRef(agent.id, "agent"),
+		);
+	}
+
 	const instruction = findInstruction(agent.instructions.id, instructions);
 	const body =
-		instruction?.body ??
+		(instruction ? instructionBody(instruction) : undefined) ??
 		`Agent instruction reference not found: ${agent.instructions.id}`;
 	const content = withFrontmatter(
 		{
@@ -515,6 +537,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `agents/`: generated agent assets, when present.",
 		"- `hooks/hooks.json`: generated hook configuration, when present.",
 		"- `.mcp.json`: generated MCP server configuration, when present.",
+		'- Target files (`targetFiles["claude-code"]`) are copied at the plugin root, relative to this directory.',
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"## Current Limitations",
 		"TypeScript hook functions are emitted as a generated raw-JS OIAP runtime. Hook handlers must be portable function expressions or target modules are reported as degraded metadata.",
@@ -808,6 +831,10 @@ function findInvocation(
 	invocations: Invocation[],
 ): Invocation | undefined {
 	return invocations.find((invocation) => invocation.id === id);
+}
+
+function instructionBody(instruction: InstructionModule): string {
+	return instruction.hostOverrides?.[CLAUDE_CODE_TARGET] ?? instruction.body;
 }
 
 function targetInvocationName(invocation: Invocation): string {

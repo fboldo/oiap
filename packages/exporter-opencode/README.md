@@ -11,6 +11,12 @@ The exporter renders project-local OpenCode configuration and companion assets:
 - `.opencode/agents/` for custom primary/subagent prompt files.
 - `.opencode/plugins/oiap-hooks.js` for plugin hooks backed by the OIAP generated runtime.
 
+Primitives limited to other hosts with `targets` are left out.
+`manifest.targetMetadata.opencode` merges into `opencode.json` (`null` removes a
+generated key). `targetFiles.opencode` are written as-is at the bundle root,
+next to `opencode.json` and `.opencode/`. Agents from `agentsFrom` keep their
+Markdown file unchanged.
+
 Most authors should use the CLI:
 
 ```sh

@@ -28,8 +28,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -68,7 +70,9 @@ type OpenCodePermissionConfig = Record<
 export const openCodeExporter = defineExporter({
 	target: OPENCODE_TARGET,
 	profile: openCodeProfile,
-	lower(ir: PluginIr): LoweredTargetGraph {
+	lower(input: PluginIr): LoweredTargetGraph {
+		// Primitives limited to other hosts never reach files or the report.
+		const ir = scopeToTarget(input, OPENCODE_TARGET);
 		const files = renderOpenCodeFiles(ir);
 		const report = createExportReport(ir);
 
@@ -123,11 +127,10 @@ export function exportOpenCode(plugin: OpenCodePluginInput): TargetBundle {
 }
 
 function normalizePluginInput(plugin: OpenCodePluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		OPENCODE_TARGET,
+	);
 }
 
 function isPluginIr(plugin: OpenCodePluginInput): plugin is PluginIr {
@@ -171,6 +174,13 @@ function renderOpenCodeFiles(ir: PluginIr): RenderedFile[] {
 			resourceRoot,
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Author files for OpenCode (plugins, command files, ...) land at the
+		// bundle root, next to opencode.json and .opencode/.
+		...renderPluginFiles(
+			ir.targetFiles?.[OPENCODE_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	// OpenCode has no plugin root variable in agent, command or skill text, so
 	// bundle paths are written relative to the file that references them.
@@ -209,15 +219,18 @@ function renderOpenCodeConfig(
 	// opencode.json is project config, not a plugin manifest: it has no
 	// displayName, keywords, logo, author or repository keys
 	// (https://opencode.ai/config.json), so those manifest fields are not emitted.
-	const config = omitUndefined({
-		$schema: "https://opencode.ai/config.json",
-		instructions:
-			instructionFiles.length > 0
-				? instructionFiles.map((file) => file.path)
-				: undefined,
-		mcp: renderMcpConfig(ir.tools),
-		permission: renderPermissionConfig(ir.policies),
-	});
+	const config = mergeTargetMetadata(
+		omitUndefined({
+			$schema: "https://opencode.ai/config.json",
+			instructions:
+				instructionFiles.length > 0
+					? instructionFiles.map((file) => file.path)
+					: undefined,
+			mcp: renderMcpConfig(ir.tools),
+			permission: renderPermissionConfig(ir.policies),
+		}),
+		getManifest(ir).targetMetadata?.[OPENCODE_TARGET],
+	);
 
 	return jsonFile(
 		"opencode.json",
@@ -389,6 +402,15 @@ function renderAgents(
 	agentPaths: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
+		const path =
+			agentPaths.get(agent.id) ??
+			`.opencode/agents/${slug(agent.id, "agent")}.md`;
+
+		// An agent file already in the repository (agentsFrom) is emitted as is.
+		if (agent.source) {
+			return textFile(path, agent.source.content, sourceRef(agent.id, "agent"));
+		}
+
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const body = [
 			instruction
@@ -409,12 +431,7 @@ function renderAgents(
 			body,
 		);
 
-		return textFile(
-			agentPaths.get(agent.id) ??
-				`.opencode/agents/${slug(agent.id, "agent")}.md`,
-			content,
-			sourceRef(agent.id, "agent"),
-		);
+		return textFile(path, content, sourceRef(agent.id, "agent"));
 	});
 }
 

@@ -57,6 +57,12 @@ interface BuiltInInstallTargetDefinition {
 }
 
 const builtInInstallTargetDefinitions = {
+	"agent-plugins": {
+		id: "agent-plugins",
+		packageName: "@oiap/exporter-agent-plugins",
+		exportName: "exportAgentPlugins",
+		profileExportName: "agentPluginsProfile",
+	},
 	antigravity: {
 		id: "antigravity",
 		packageName: "@oiap/exporter-antigravity",

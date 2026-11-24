@@ -12,6 +12,14 @@ This package renders OIAP plugin definitions into project-local Cline assets:
 - MCP servers in `.cline/mcp.json`.
 - OIAP capability reports, source maps, and policy evidence under `.oiap/`.
 
+Primitives with `targets` that leave out `cline` are dropped. The manifest's
+`targetMetadata.cline` merges into `.oiap/cline-target.json` (`null` removes a
+generated field). `targetFiles.cline` files are written as-is relative to the
+bundle root, which is the project root the bundle installs into (for example
+`.cline/hooks/TaskStart.cjs`). Agents loaded with `agentsFrom` are still
+rendered as Cline `.yaml` agent files from their parsed fields, since Cline uses
+its own keys such as `modelId`.
+
 Use it directly from TypeScript:
 
 ```ts

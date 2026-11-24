@@ -273,6 +273,13 @@ Exporters write the listing fields (`displayName`, `keywords`, `logo`,
 `author`, `repository`) into each host manifest that has a matching key, and
 `version` into all of them, so every host stays in lockstep.
 
+`manifest.targetMetadata` merges host-only fields into one host's manifest
+(objects merge deeply, `null` removes a generated field), and
+`manifest.marketplace` configures the catalogs `oiap sync` writes (name, owner,
+description, entry fields, per-host overrides). Every primitive also accepts
+`targets` to limit it to some hosts, and `targetFiles` ships host files OIAP
+does not model, such as hand-written hook scripts, as written.
+
 The manifest should describe what the plugin needs in semantic terms, such as
 workspace read access, command execution, file writes, MCP tools, hooks, rules,
 subagents, browser control, or network access.
@@ -476,6 +483,10 @@ files exactly as written, keeping frontmatter OIAP does not model (`license`,
 never rewrites or deletes them, and hosts that read the root `skills/` share
 them. Host-specific needs go into separate files (Codex `agents/openai.yaml`)
 or are reported as degradations; path tokens are not resolved inside them.
+
+`agentsFrom(directory)` and `agentFrom(file)` do the same for agent Markdown
+files: hosts that read Markdown agent files get them unchanged, and other hosts
+render their own format from the parsed name, description, model and body.
 
 `modelInvocable: false` makes a skill user-only (host
 `disable-model-invocation: true`); `userInvocable: false` hides it from the

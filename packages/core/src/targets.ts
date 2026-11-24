@@ -45,16 +45,37 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export function scopeToTarget(ir: PluginIr, target: TargetId): PluginIr {
 	const keep = <T extends { targets?: readonly string[] }>(items: T[]): T[] =>
 		items.filter((item) => !item.targets || item.targets.includes(target));
+	const skills = keep(ir.skills);
+	const agents = keep(ir.agents);
+	const commands = keep(ir.commands);
+	// An instruction used only by primitives scoped out goes with them, so it
+	// doesn't reappear as a standalone rule or skill.
+	const instructionRefs = (scoped: {
+		skills: typeof ir.skills;
+		agents: typeof ir.agents;
+		commands: typeof ir.commands;
+	}): Set<string> =>
+		new Set([
+			...scoped.skills.map((skill) => skill.instructions.id),
+			...scoped.agents.map((agent) => agent.instructions.id),
+			...scoped.commands.flatMap((command) =>
+				command.prompt ? [command.prompt.id] : [],
+			),
+		]);
+	const used = instructionRefs({ skills, agents, commands });
+	const dropped = [...instructionRefs(ir)].filter((id) => !used.has(id));
 
 	return {
 		...ir,
-		instructions: keep(ir.instructions),
-		commands: keep(ir.commands),
+		instructions: keep(ir.instructions).filter(
+			(instruction) => !dropped.includes(instruction.id),
+		),
+		commands,
 		workflows: keep(ir.workflows),
 		rules: keep(ir.rules),
-		skills: keep(ir.skills),
+		skills,
 		hooks: keep(ir.hooks),
-		agents: keep(ir.agents),
+		agents,
 		tools: keep(ir.tools),
 	};
 }

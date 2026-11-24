@@ -331,6 +331,91 @@ describe("exportWindsurf", () => {
 		);
 	});
 
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			skills: [
+				...samplePlugin.skills,
+				{
+					id: "codex_only",
+					name: "Codex Only",
+					description: "Only for Codex.",
+					instructions: { id: "audit-instructions", kind: "instruction" },
+					targets: ["codex"],
+				},
+			],
+			agents: [
+				...samplePlugin.agents,
+				{
+					id: "claude-only",
+					name: "Claude Only",
+					description: "Only for Claude.",
+					instructions: { id: "agent-instructions", kind: "instruction" },
+					targets: ["claude-code"],
+				},
+			],
+		} as PluginDefinition);
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain(".windsurf/skills/audit-repo/SKILL.md");
+		expect(paths).not.toContain(".windsurf/skills/codex-only/SKILL.md");
+		expect(paths).not.toContain(".devin/agents/claude-only.md");
+		expect(JSON.stringify(bundle.report)).not.toContain("codex_only");
+		expect(JSON.stringify(bundle.report)).not.toContain("claude-only");
+	});
+
+	test("merges manifest targetMetadata into the target manifest", () => {
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			manifest: {
+				...samplePlugin.manifest,
+				targetMetadata: {
+					[target]: { version: null, extra: { team: "core" } },
+					codex: { ignored: true },
+				},
+			},
+		} as PluginDefinition);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".oiap/windsurf-target.json",
+		);
+
+		expect(manifest).not.toHaveProperty("version");
+		expect(manifest.extra).toEqual({ team: "core" });
+		expect(manifest).not.toHaveProperty("ignored");
+		expect(manifest.name).toBe("sample-windsurf");
+	});
+
+	test("writes targetFiles at the workspace root", () => {
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			targetFiles: {
+				[target]: [{ path: ".devin/hooks/custom.sh", content: "#!/bin/sh\n" }],
+				codex: [{ path: "codex-only.txt", content: "no" }],
+			},
+		} as PluginDefinition);
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, ".devin/hooks/custom.sh")).toBe("#!/bin/sh\n");
+		expect(paths).not.toContain("codex-only.txt");
+	});
+
+	test("emits in-place agents byte-identical", () => {
+		const content =
+			"---\nname: reviewer\ndescription: Hand-written.\n---\n\nKeep me as is.\n";
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			agents: [
+				{
+					...samplePlugin.agents[0],
+					source: { file: "agents/reviewer.md", content },
+				},
+			],
+		} as PluginDefinition);
+
+		expect(readText(bundle, ".devin/agents/reviewer.md")).toBe(content);
+	});
+
 	test("profile declares install paths", () => {
 		expect(windsurfProfile.installSupport?.paths).toEqual({
 			local: { base: "cwd", segments: [".windsurf", "plugins", "{pluginId}"] },

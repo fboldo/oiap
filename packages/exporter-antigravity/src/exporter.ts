@@ -30,8 +30,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -100,9 +102,14 @@ const ANTIGRAVITY_MANIFEST_KEYS = new Set([
 ]);
 const ANTIGRAVITY_PLUGIN_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * Gemini CLI and Antigravity both install from the repository root, so each
+ * keeps its hook runtime in its own directory and `oiap sync` can place both.
+ */
+const HOOK_RUNTIME_ROOT = `.oiap/runtime/${ANTIGRAVITY_TARGET}`;
 /** Hook commands run with cwd set to the plugin root. */
-const HOOK_RUNNER_PATH = "./.oiap/runtime/runner.mjs";
-const HOOK_MANIFEST_PATH = "./.oiap/runtime/manifest.json";
+const HOOK_RUNNER_PATH = `./${HOOK_RUNTIME_ROOT}/runner.mjs`;
+const HOOK_MANIFEST_PATH = `./${HOOK_RUNTIME_ROOT}/manifest.json`;
 
 /** Expanded in mcp_config.json `args`, `cwd` and `env` only. */
 const MCP_PLUGIN_ROOT_VARIABLE = "$" + "{PLUGIN_ROOT}";
@@ -169,12 +176,12 @@ export function exportAntigravity(
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: AntigravityPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		ANTIGRAVITY_TARGET,
+	);
 }
 
 function isPluginIr(plugin: AntigravityPluginInput): plugin is PluginIr {
@@ -214,6 +221,13 @@ function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Hand-written host files (hook scripts, extra skills, ...) at the
+		// plugin root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[ANTIGRAVITY_TARGET],
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	const pathContext = { resourceRoot: RESOURCE_ROOT, agentFiles };
@@ -257,19 +271,24 @@ function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const keywords = manifest.keywords ?? manifest.categories;
-	const content = omitUndefined({
-		$schema: ANTIGRAVITY_MANIFEST_SCHEMA,
-		name: pluginName(ir),
-		displayName: manifest.displayName ?? manifest.name,
-		description: manifest.description,
-		version: manifest.version,
-		logo: manifestLogo(ir),
-		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
-		homepage: manifest.homepage,
-		repository: manifest.repository,
-		license: manifest.license,
-		keywords: keywords.length > 0 ? keywords : undefined,
-	});
+	const content = mergeTargetMetadata(
+		omitUndefined({
+			$schema: ANTIGRAVITY_MANIFEST_SCHEMA,
+			name: pluginName(ir),
+			displayName: manifest.displayName ?? manifest.name,
+			description: manifest.description,
+			version: manifest.version,
+			logo: manifestLogo(ir),
+			author: manifest.author
+				? omitUndefined({ ...manifest.author })
+				: undefined,
+			homepage: manifest.homepage,
+			repository: manifest.repository,
+			license: manifest.license,
+			keywords: keywords.length > 0 ? keywords : undefined,
+		}),
+		manifest.targetMetadata?.[ANTIGRAVITY_TARGET],
+	);
 
 	return jsonFile(
 		ANTIGRAVITY_MANIFEST_PATH,
@@ -536,6 +555,12 @@ function renderAgents(
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const path = agentFiles[agent.id] ?? `agents/${slug(agent.id, "agent")}.md`;
 		const name = path.slice("agents/".length, -".md".length);
+
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(path, agent.source.content, sourceRef(agent.id, "agent"));
+		}
+
 		const content = withFrontmatter(
 			{
 				name,
@@ -566,6 +591,7 @@ function renderHookFiles(ir: PluginIr): RenderedFile[] {
 			target: ANTIGRAVITY_TARGET,
 			hooks,
 			targetEvent: (hook) => toAntigravityHookEvent(hook.event),
+			runtimeRoot: HOOK_RUNTIME_ROOT,
 		}).files,
 	];
 }
@@ -782,7 +808,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile[] {
 		"- `skills/`: skills, plus commands and workflows rendered as skills (invoke with `/<skill-name>`), when present. Skill files live beside each SKILL.md.",
 		"- `agents/`: custom agents and subagents, when present.",
 		"- `rules/`: rules, when present.",
-		"- `hooks.json` and `.oiap/runtime/`: lifecycle hooks and the OIAP hook runner, when present.",
+		`- \`hooks.json\` and \`${HOOK_RUNTIME_ROOT}/\`: lifecycle hooks and the OIAP hook runner, when present.`,
 		"- `mcp_config.json`: MCP servers, when present.",
 		"- `.oiap/`: source map, capability report, permission fragments, and degraded metadata.",
 		"Plugin resources, when present, are at the plugin root.",

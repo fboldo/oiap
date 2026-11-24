@@ -50,6 +50,13 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 			"policies/",
 		],
 	},
+	// https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.0.0.md
+	// The open manifest at the root; Copilot CLI, VS Code and Codex prefer it
+	// over their own manifest, so they move aside when it is present.
+	"agent-plugins": {
+		rootOnly: true,
+		reads: ["plugin.json", "skills/", "mcp.json"],
+	},
 	// https://antigravity.google/docs/build-plugins.md
 	// Its .antigravity-plugin/plugin.json wins over a root plugin.json.
 	antigravity: {
@@ -85,9 +92,11 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		marketplace: "claude",
 	},
 	// https://developers.openai.com/codex/plugins/build
+	// A root Agent Plugins plugin.json wins over .codex-plugin/plugin.json.
 	codex: {
 		rootOnly: false,
 		reads: [
+			"plugin.json",
 			".codex-plugin/plugin.json",
 			"skills/",
 			"hooks/hooks.json",
@@ -143,6 +152,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 
 /** Root-only hosts first, then the order movable hosts try the root. */
 const SYNC_TARGET_ORDER = [
+	"agent-plugins",
 	"gemini-cli",
 	"antigravity",
 	"openclaw",
@@ -155,7 +165,10 @@ const SYNC_TARGET_ORDER = [
 
 export const syncTargets = [...SYNC_TARGET_ORDER];
 
-/** Bundle files that describe a build and do not belong in a plugin repository. */
+/**
+ * Bundle files that describe a build and do not belong in a plugin repository;
+ * per-hook evidence under `.oiap/hooks/` is left out too.
+ */
 const BUNDLE_ONLY_FILES = new Set([
 	"README.md",
 	".oiap/bundle.json",
@@ -236,7 +249,9 @@ export function planSync(
 		}
 
 		const files = bundle.files.filter(
-			(file) => !BUNDLE_ONLY_FILES.has(file.path),
+			(file) =>
+				!BUNDLE_ONLY_FILES.has(file.path) &&
+				!file.path.startsWith(".oiap/hooks/"),
 		);
 		let directory = "";
 

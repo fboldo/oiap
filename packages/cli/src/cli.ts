@@ -483,7 +483,7 @@ function isCliEntrypoint(): boolean {
 }
 
 const generalHelpText = `Usage:
-	oiap build <plugin-file> [--target all|antigravity|claude-code|cline|codex|cursor|gemini-cli|github-copilot-cli|openclaw|opencode|vscode-copilot-chat|windsurf] [--out <dir>] [--export <name>] [--json]
+	oiap build <plugin-file> [--target all|agent-plugins|antigravity|claude-code|cline|codex|cursor|gemini-cli|github-copilot-cli|openclaw|opencode|vscode-copilot-chat|windsurf] [--out <dir>] [--export <name>] [--json]
   oiap sync [plugin-file] [--check] [--layout root|plugins] [--target <targets>] [--repo <dir>] [--force] [--json]
   oiap targets [--json]
 

@@ -17,8 +17,13 @@ policies/oiap-policy.toml
 
 MCP servers are embedded in `gemini-extension.json`, because Gemini CLI loads
 extension MCP configuration from the manifest. Hook configuration calls the
-generated `.oiap/runtime/runner.mjs` raw-JS hook runtime through
-`${extensionPath}` variables.
+generated `.oiap/runtime/gemini-cli/runner.mjs` raw-JS hook runtime through
+`${extensionPath}` variables. The runtime lives in a target-specific directory
+because Antigravity also installs from the repository root.
+
+`manifest.targetMetadata["gemini-cli"]` merges into `gemini-extension.json`
+(`null` removes a generated key), and `targetFiles["gemini-cli"]` are copied
+as-is relative to the extension root.
 
 Most authors should use the CLI:
 

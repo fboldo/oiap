@@ -5,6 +5,10 @@ import type {
 	TargetId,
 } from "@oiap/core";
 import {
+	AGENT_PLUGINS_TARGET,
+	exportAgentPlugins,
+} from "@oiap/exporter-agent-plugins";
+import {
 	ANTIGRAVITY_TARGET,
 	exportAntigravity,
 } from "@oiap/exporter-antigravity";
@@ -37,6 +41,11 @@ export interface RegisteredExporter {
 }
 
 export const exporterRegistry = {
+	[AGENT_PLUGINS_TARGET]: {
+		target: AGENT_PLUGINS_TARGET,
+		packageName: "@oiap/exporter-agent-plugins",
+		exportBundle: exportAgentPlugins,
+	},
 	[ANTIGRAVITY_TARGET]: {
 		target: ANTIGRAVITY_TARGET,
 		packageName: "@oiap/exporter-antigravity",

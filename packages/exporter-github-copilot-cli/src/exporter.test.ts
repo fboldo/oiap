@@ -372,6 +372,96 @@ describe("exportGitHubCopilotCli", () => {
 		expect(bundle.report.status).toBe("unsupported");
 		expect(issueCodes).toContain("unresolved-path-token");
 	});
+	test("drops primitives scoped to other hosts", () => {
+		const bundle = exportGitHubCopilotCli({
+			...sampleCopilotCliPlugin,
+			instructions: [
+				...sampleCopilotCliPlugin.instructions,
+				{
+					id: "claude-only-body",
+					purpose: "workflow",
+					triggers: [],
+					body: "Claude only.",
+				},
+			],
+			skills: [
+				...sampleCopilotCliPlugin.skills,
+				{
+					id: "claude-only",
+					name: "Claude Only",
+					description: "Only for Claude Code.",
+					instructions: { id: "claude-only-body", kind: "instruction" },
+					targets: ["claude-code"],
+				},
+			],
+			agents: sampleCopilotCliPlugin.agents.map((agent) => ({
+				...agent,
+				targets: ["claude-code"],
+			})),
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).not.toContain("skills/claude-only/SKILL.md");
+		expect(paths).not.toContain("agents/reviewer.agent.md");
+		expect(JSON.stringify(bundle.files)).not.toContain("claude-only");
+		expect(
+			bundle.report.mappedCapabilities.some(
+				(capability) => capability.kind === "agents",
+			),
+		).toBe(false);
+		expect(
+			readJson<CopilotCliPluginManifest>(bundle, "plugin.json").agents,
+		).toBeUndefined();
+	});
+
+	test("merges manifest targetMetadata into plugin.json", () => {
+		const bundle = exportGitHubCopilotCli({
+			...sampleCopilotCliPlugin,
+			manifest: {
+				...sampleCopilotCliPlugin.manifest,
+				targetMetadata: {
+					[target]: { version: null, category: "devtools", extra: { a: 1 } },
+					"claude-code": { name: "not-for-copilot" },
+				},
+			},
+		});
+		const manifest = readJson<Record<string, unknown>>(bundle, "plugin.json");
+
+		expect(manifest.version).toBeUndefined();
+		expect("version" in manifest).toBe(false);
+		expect(manifest.category).toBe("devtools");
+		expect(manifest.extra).toEqual({ a: 1 });
+		expect(manifest.name).toBe("sample-copilot-cli");
+	});
+
+	test("writes targetFiles at the plugin root", () => {
+		const bundle = exportGitHubCopilotCli({
+			...sampleCopilotCliPlugin,
+			targetFiles: {
+				[target]: [
+					{
+						path: "scripts/check.sh",
+						content: "#!/bin/sh\necho ok\n",
+						mode: 0o755,
+					},
+				],
+				"claude-code": [{ path: "scripts/claude.sh", content: "claude" }],
+			},
+		});
+		const file = bundle.files.find(
+			(candidate) => candidate.path === "scripts/check.sh",
+		);
+
+		expect(file?.content).toBe("#!/bin/sh\necho ok\n");
+		expect(file?.mode).toBe(0o755);
+		expect(file?.source?.primitiveKind).toBe("target-file");
+		expect(
+			bundle.files.some((candidate) => candidate.path === "scripts/claude.sh"),
+		).toBe(false);
+		expect(
+			bundle.report.issues.filter((issue) => issue.severity === "error"),
+		).toEqual([]);
+	});
 });
 
 const bundleFilesAgent = {

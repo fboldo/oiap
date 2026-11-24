@@ -217,6 +217,65 @@ describe("exportOpenClaw", () => {
 		).not.toContain("agent-without-host-instructions");
 	});
 
+	test("drops primitives limited to other targets", () => {
+		const skill = bundleFilesPlugin.skills[0];
+		if (!skill) throw new Error("Missing skill fixture");
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			skills: [
+				skill,
+				{ ...skill, id: "codex-only", name: "codex-only", targets: ["codex"] },
+			],
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain("skills/review/SKILL.md");
+		expect(paths.some((path) => path.includes("codex-only"))).toBe(false);
+		expect(JSON.stringify(bundle.report)).not.toContain("codex-only");
+	});
+
+	test("merges manifest targetMetadata into openclaw.plugin.json", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				targetMetadata: {
+					openclaw: {
+						version: null,
+						configSchema: { additionalProperties: true },
+					},
+					codex: { description: "Not for OpenClaw." },
+				},
+			},
+		});
+		const manifest = readJson(bundle, "openclaw.plugin.json");
+
+		expect(manifest.version).toBeUndefined();
+		expect(manifest.configSchema).toEqual({
+			type: "object",
+			additionalProperties: true,
+			properties: {},
+		});
+		expect(manifest.description).toBe(
+			"Skill files, resources and path tokens.",
+		);
+		expect(readJson(bundle, "package.json").version).toBe("1.0.0");
+	});
+
+	test("emits target files at the package root", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			targetFiles: {
+				openclaw: [{ path: "scripts/check.sh", content: "#!/bin/sh\n" }],
+				codex: [{ path: "scripts/codex.sh", content: "#!/bin/sh\n" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, "scripts/check.sh")).toBe("#!/bin/sh\n");
+		expect(paths).not.toContain("scripts/codex.sh");
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportOpenClaw({
 			...bundleFilesPlugin,

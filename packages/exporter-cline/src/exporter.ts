@@ -26,8 +26,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -129,11 +131,11 @@ export function exportCline(plugin: ClinePluginInput): TargetBundle {
 }
 
 function normalizePluginInput(plugin: ClinePluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	// Primitives limited to other hosts with `targets` never reach Cline.
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CLINE_TARGET,
+	);
 }
 
 function isPluginIr(plugin: ClinePluginInput): plugin is PluginIr {
@@ -168,6 +170,13 @@ function renderClineFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			resourceRoot(ir),
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Author files for Cline land at the project root the bundle is
+		// installed into, like the generated `.cline/` and `.clinerules/` files.
+		...renderPluginFiles(
+			ir.targetFiles?.[CLINE_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Cline has no plugin root variable in skill or agent text, so bundle
@@ -211,7 +220,7 @@ function renderTargetManifest(ir: PluginIr): RenderedFile {
 	// Plugins plugin.json (author {name,email,url}, repository, keywords), which
 	// has no displayName or logo
 	// (sdk/packages/core/src/extensions/agent-plugin/loader.ts, MANIFEST_FIELDS).
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
 		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
@@ -236,6 +245,10 @@ function renderTargetManifest(ir: PluginIr): RenderedFile {
 		mcp: hasMcpOutput(ir.tools) ? ".cline/mcp.json" : undefined,
 		policies: ir.policies.length > 0 ? ".oiap/policy.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CLINE_TARGET],
+	);
 
 	return jsonFile(
 		".oiap/cline-target.json",

@@ -54,6 +54,37 @@ describe("scopeToTarget", () => {
 	});
 });
 
+describe("scopeToTarget instructions", () => {
+	test("drops instructions only used by scoped-out primitives", () => {
+		const ir = toPluginIr({
+			instructions: [
+				{ id: "only-gemini", purpose: "workflow", triggers: [], body: "G" },
+				{ id: "shared", purpose: "workflow", triggers: [], body: "S" },
+				{ id: "rule", purpose: "always_on", triggers: [], body: "R" },
+			],
+			skills: [
+				{
+					id: "g",
+					name: "g",
+					description: "G",
+					targets: ["gemini-cli"],
+					instructions: { id: "only-gemini", kind: "instruction" },
+				},
+				{
+					id: "s",
+					name: "s",
+					description: "S",
+					instructions: { id: "shared", kind: "instruction" },
+				},
+			],
+		});
+
+		expect(
+			scopeToTarget(ir, "claude-code").instructions.map((entry) => entry.id),
+		).toEqual(["shared", "rule"]);
+	});
+});
+
 describe("agentsFrom", () => {
 	test("reads agent files in place and synthesizes their instructions", () => {
 		const root = mkdtempSync(join(tmpdir(), "oiap-agents-"));

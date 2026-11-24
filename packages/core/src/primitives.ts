@@ -29,7 +29,8 @@ export type KnownTargetId =
 	| "cline"
 	| "cursor"
 	| "antigravity"
-	| "windsurf";
+	| "windsurf"
+	| "agent-plugins";
 
 export type TargetId = KnownTargetId | (string & {});
 

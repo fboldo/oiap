@@ -28,8 +28,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -107,7 +109,9 @@ const READ_ONLY_TOOLS = ["read", "grep", "glob"];
 export const windsurfExporter = defineExporter({
 	target: WINDSURF_TARGET,
 	profile: windsurfProfile,
-	lower(ir: PluginIr): LoweredTargetGraph {
+	lower(input: PluginIr): LoweredTargetGraph {
+		const ir = scopeToTarget(input, WINDSURF_TARGET);
+
 		return {
 			target: WINDSURF_TARGET,
 			files: renderWindsurfFiles(ir),
@@ -159,7 +163,10 @@ export function exportWindsurf(plugin: WindsurfPluginInput): TargetBundle {
 }
 
 function normalizePluginInput(plugin: WindsurfPluginInput): PluginIr {
-	return isPluginIr(plugin) ? plugin : toPluginIr(plugin);
+	const ir = isPluginIr(plugin) ? plugin : toPluginIr(plugin);
+
+	// Primitives limited to other hosts never reach files or reports.
+	return scopeToTarget(ir, WINDSURF_TARGET);
 }
 
 function isPluginIr(plugin: WindsurfPluginInput): plugin is PluginIr {
@@ -195,6 +202,13 @@ function renderWindsurfFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			resourceRoot(ir),
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Author files for this host land at the workspace root, beside
+		// .windsurf/ and .devin/ (for example .devin/hooks.v1.json).
+		...renderPluginFiles(
+			ir.targetFiles?.[WINDSURF_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Windsurf has no plugin root variable in skill or agent text, so bundle
@@ -236,7 +250,7 @@ function renderTargetManifest(ir: PluginIr): RenderedFile {
 	// (.devin-plugin/plugin.json: author, repository, keywords, and logo as a
 	// path relative to the plugin directory), which has no displayName.
 	// https://docs.devin.ai/cli/extensibility/plugins/overview.md#metadata
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
 		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
@@ -269,6 +283,10 @@ function renderTargetManifest(ir: PluginIr): RenderedFile {
 		resources:
 			(ir.resources ?? []).length > 0 ? `${resourceRoot(ir)}/` : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[WINDSURF_TARGET],
+	);
 
 	return jsonFile(MANIFEST_PATH, content, sourceRef(manifest.id, "manifest"));
 }
@@ -472,8 +490,18 @@ function renderAgents(
 	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
-		const instruction = findInstruction(instructions, agent.instructions.id);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
+
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(
+				agentPath(agentSlug),
+				agent.source.content,
+				sourceRef(agent.id, "agent"),
+			);
+		}
+
+		const instruction = findInstruction(instructions, agent.instructions.id);
 		const frontmatter = omitUndefined({
 			name: agentSlug,
 			description: agent.description,

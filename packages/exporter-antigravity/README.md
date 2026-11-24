@@ -19,13 +19,18 @@ The exporter renders a native Antigravity plugin, installable with
   `targetMetadata.antigravity`.
 - `rules/<name>.md`: rules with `trigger` and comma-separated `globs`
   frontmatter.
-- `hooks.json` and `.oiap/runtime/`: lifecycle hooks that run the OIAP hook
-  runner from the plugin root; the runner answers with Antigravity hook
-  responses (`decision`, `injectSteps`).
+- `hooks.json` and `.oiap/runtime/antigravity/`: lifecycle hooks that run the
+  OIAP hook runner from the plugin root; the runner answers with Antigravity
+  hook responses (`decision`, `injectSteps`). The runtime has its own
+  directory because Gemini CLI also installs from the repository root.
 - `mcp_config.json`: MCP servers under `mcpServers`.
 - Plugin `resources` at the plugin root.
 - `.oiap/`: source map, capability report, permission fragments, and policy
   evidence.
+- `targetFiles.antigravity`: copied as-is relative to the plugin root.
+
+`manifest.targetMetadata.antigravity` merges into
+`.antigravity-plugin/plugin.json`; `null` removes a generated key.
 
 Antigravity installs plugins to `~/.gemini/config/plugins/<plugin-name>`
 (global) or `.agents/plugins/` (workspace). The exporter itself writes only

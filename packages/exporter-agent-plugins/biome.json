@@ -1,0 +1,7 @@
+{
+	"root": false,
+	"extends": "//",
+	"files": {
+		"includes": ["**", "!src/fixtures/agent-plugins-1.0.0/*.schema.json"]
+	}
+}

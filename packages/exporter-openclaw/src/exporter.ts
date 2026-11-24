@@ -29,8 +29,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -126,12 +128,12 @@ export function exportOpenClaw(plugin: OpenClawPluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: OpenClawPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		OPENCLAW_TARGET,
+	);
 }
 
 function isPluginIr(plugin: OpenClawPluginInput): plugin is PluginIr {
@@ -173,6 +175,13 @@ function renderOpenClawFiles(ir: PluginIr): RenderedFile[] {
 			sourceRef(getManifest(ir).id, "resource"),
 		),
 		...renderPluginIcon(ir),
+		// Hand-written host files (hook scripts, extra skills, ...) at the
+		// package root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[OPENCLAW_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
 		resourceRoot: "",
@@ -295,9 +304,14 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		toolMetadata: renderToolMetadata(toolDescriptors),
 	});
 
+	// `targetMetadata.openclaw` overrides apply to openclaw.plugin.json, the
+	// native plugin manifest OpenClaw loads; package.json is the npm wrapper.
 	return jsonFile(
 		"openclaw.plugin.json",
-		manifestContent,
+		mergeTargetMetadata(
+			manifestContent,
+			manifest.targetMetadata?.[OPENCLAW_TARGET],
+		),
 		sourceRef(manifest.id, "manifest"),
 	);
 }

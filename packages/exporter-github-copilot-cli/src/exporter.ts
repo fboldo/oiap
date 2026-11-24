@@ -27,8 +27,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -115,12 +117,38 @@ export function exportGitHubCopilotCli(
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: GitHubCopilotCliPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
+	const ir = isPluginIr(plugin) ? plugin : toPluginIr(plugin);
 
-	return toPluginIr(plugin);
+	return dropOrphanedInstructions(
+		ir,
+		scopeToTarget(ir, GITHUB_COPILOT_CLI_TARGET),
+	);
+}
+
+// An instruction that only backed a skill, agent or command scoped to another
+// host would otherwise be exported here as a standalone instruction skill.
+function dropOrphanedInstructions(full: PluginIr, scoped: PluginIr): PluginIr {
+	const before = referencedInstructionIds(full);
+	const after = referencedInstructionIds(scoped);
+
+	return {
+		...scoped,
+		instructions: scoped.instructions.filter(
+			(instruction) => !before.has(instruction.id) || after.has(instruction.id),
+		),
+	};
+}
+
+function referencedInstructionIds(ir: PluginIr): Set<string> {
+	return new Set([
+		...ir.skills.map((skill) => skill.instructions.id),
+		...ir.agents.map((agent) => agent.instructions.id),
+		...ir.commands.flatMap((command) =>
+			command.prompt ? [command.prompt.id] : [],
+		),
+	]);
 }
 
 function isPluginIr(plugin: GitHubCopilotCliPluginInput): plugin is PluginIr {
@@ -152,6 +180,13 @@ function renderGitHubCopilotCliFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Author files for this host (hand-written hook scripts, extra command
+		// files, ...) land at the plugin root, where plugin.json lives.
+		...renderPluginFiles(
+			ir.targetFiles?.[GITHUB_COPILOT_CLI_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Copilot CLI exposes the plugin root to hook processes (PLUGIN_ROOT env var)
@@ -201,7 +236,7 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const hasAgents = ir.agents.length > 0;
 	const hooks = supportedCopilotCliHooks(ir.hooks);
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
 		description: manifest.description,
 		version: manifest.version,
@@ -217,6 +252,10 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		hooks: hooks.length > 0 ? "hooks.json" : undefined,
 		mcpServers: hasMcp ? ".mcp.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[GITHUB_COPILOT_CLI_TARGET],
+	);
 
 	return jsonFile("plugin.json", content, sourceRef(manifest.id, "manifest"));
 }
@@ -624,6 +663,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `hooks.json`: generated hook configuration (`version: 1`), when present.",
 		"- `.mcp.json`: generated MCP server configuration, when present.",
 		"- Plugin resources and skill files: written at the plugin root and beside each SKILL.md, when present.",
+		"- Copilot CLI target files (`targetFiles`): written as-is relative to the plugin root, when present.",
 		"- `.oiap/`: hook runtime, source map, capability report, and policy evidence.",
 		"## Current Limitations",
 		"Copilot CLI plugins have no rules or custom-instruction surface, so OIAP rules and always-on instructions are exported as model-invoked skills. Hook results are written in Copilot CLI's documented hook output fields; modify and schedule decisions are not representable. Paths to bundled files in skill and agent text are relative to the file that contains them.",
@@ -966,13 +1006,7 @@ function targetInvocationName(invocation: Invocation): string {
 }
 
 function standaloneInstructions(ir: PluginIr): InstructionModule[] {
-	const referencedInstructions = new Set([
-		...ir.skills.map((skill) => skill.instructions.id),
-		...ir.agents.map((agent) => agent.instructions.id),
-		...ir.commands.flatMap((command) =>
-			command.prompt ? [command.prompt.id] : [],
-		),
-	]);
+	const referencedInstructions = referencedInstructionIds(ir);
 
 	return ir.instructions.filter(
 		(instruction) =>

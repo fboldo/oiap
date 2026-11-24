@@ -1,0 +1,14 @@
+{
+	"description": "Agent Plugins 1.0.0 JSON schemas, vendored unchanged for exporter tests. Byte-identical to schemas/1.0.0/ in github.com/agentplugins/agent-plugins-spec at commit 6395e8906b30e2f333b792bfaa981d790993d56f.",
+	"fetchedAt": "2026-11-24",
+	"files": {
+		"plugin.schema.json": {
+			"url": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+			"sha256": "0a4aad95ce337878ad38802ebf0daa3fde76abe3f65400c86bcbb1ec0b3ab883"
+		},
+		"mcp.schema.json": {
+			"url": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+			"sha256": "6539175bfcdf43085855183e86da40ea94b166547a72b47ae9a0a390516d3acb"
+		}
+	}
+}

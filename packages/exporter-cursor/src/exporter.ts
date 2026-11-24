@@ -27,8 +27,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -110,12 +112,12 @@ export function exportCursor(plugin: CursorPluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: CursorPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CURSOR_TARGET,
+	);
 }
 
 function isPluginIr(plugin: CursorPluginInput): plugin is PluginIr {
@@ -155,6 +157,13 @@ function renderCursorFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Hand-written host files (hook scripts, hooks.json, ...) at the plugin
+		// root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[CURSOR_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
@@ -201,7 +210,7 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const hasAgents = ir.agents.length > 0;
 	const hasHooks = supportedCursorHooks(ir.hooks).length > 0;
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
 		displayName: manifest.displayName,
 		description: manifest.description,
@@ -224,6 +233,10 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		hooks: hasHooks ? "hooks/hooks.json" : undefined,
 		mcpServers: hasMcp ? "mcp.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CURSOR_TARGET],
+	);
 
 	return jsonFile(
 		".cursor-plugin/plugin.json",
@@ -388,6 +401,15 @@ function renderAgents(
 	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(
+				agentPath(agentSlugs, agent),
+				agent.source.content,
+				sourceRef(agent.id, "agent"),
+			);
+		}
+
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
 		const body = [
@@ -602,6 +624,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `mcp.json`: generated MCP server configuration, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"- Skill files sit beside each `SKILL.md`; plugin resources are written at the plugin root, when present.",
+		"- Target files (`targetFiles.cursor`) are copied at the plugin root, relative to this directory.",
 		"## Current Limitations",
 		"Permission policies are emitted as evidence until policy-specific Cursor hook lowering is implemented. Supported portable hook functions are emitted as a generated raw-JS OIAP runtime; unsupported OIAP hook lifecycles remain degraded.",
 	];

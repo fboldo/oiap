@@ -352,6 +352,7 @@ The CLI currently registers these exporters:
 
 | Target ID | Package | Output focus |
 | --- | --- | --- |
+| `agent-plugins` | [@oiap/exporter-agent-plugins](packages/exporter-agent-plugins) | Agent Plugins 1.0 open manifest (`plugin.json`, `skills/`, `mcp.json`) read by Copilot CLI, VS Code, Codex, Cursor and OpenClaw |
 | `antigravity` | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity workspace bundle artifacts |
 | `claude-code` | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code-oriented plugin bundle artifacts |
 | `cline` | [@oiap/exporter-cline](packages/exporter-cline) | Cline project rules, skills, agents, hooks, and MCP artifacts |
@@ -375,6 +376,7 @@ For researched and planned platform coverage, see the
 | [@oiap/runtime](packages/runtime) | Portable hook runtime bundle generation used by target exporters |
 | [@oiap/cli](packages/cli) | CLI for building target bundles from plugin definition files |
 | [install-agent-plugin](packages/install-agent-plugin) | Consumer CLI for discovering installable OIAP declarations in repositories |
+| [@oiap/exporter-agent-plugins](packages/exporter-agent-plugins) | Agent Plugins 1.0 exporter |
 | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity exporter |
 | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code exporter |
 | [@oiap/exporter-cline](packages/exporter-cline) | Cline exporter |

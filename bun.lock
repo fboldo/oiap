@@ -23,6 +23,7 @@
       },
       "dependencies": {
         "@oiap/core": "workspace:*",
+        "@oiap/exporter-agent-plugins": "workspace:*",
         "@oiap/exporter-antigravity": "workspace:*",
         "@oiap/exporter-claude-code": "workspace:*",
         "@oiap/exporter-cline": "workspace:*",
@@ -44,7 +45,17 @@
       "name": "@oiap/core",
       "version": "0.4.0",
       "dependencies": {
-        "yaml": "^2",
+        "yaml": "^2.9.1",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/exporter-agent-plugins": {
+      "name": "@oiap/exporter-agent-plugins",
+      "version": "0.4.0",
+      "dependencies": {
+        "@oiap/core": "workspace:*",
       },
       "peerDependencies": {
         "typescript": "^5",
@@ -180,6 +191,7 @@
       "dependencies": {
         "@oiap/cli": "workspace:*",
         "@oiap/core": "workspace:*",
+        "@oiap/exporter-agent-plugins": "workspace:*",
         "@oiap/exporter-antigravity": "workspace:*",
         "@oiap/exporter-claude-code": "workspace:*",
         "@oiap/exporter-cline": "workspace:*",
@@ -417,6 +429,8 @@
     "@oiap/cli": ["@oiap/cli@workspace:packages/cli"],
 
     "@oiap/core": ["@oiap/core@workspace:packages/core"],
+
+    "@oiap/exporter-agent-plugins": ["@oiap/exporter-agent-plugins@workspace:packages/exporter-agent-plugins"],
 
     "@oiap/exporter-antigravity": ["@oiap/exporter-antigravity@workspace:packages/exporter-antigravity"],
 
@@ -1184,7 +1198,7 @@
 
     "yallist": ["yallist@5.0.0", "", {}, "sha512-YgvUTfwqyc7UXVMrB+SImsVYSmTS8X/tSrtdNZMImM+n7+QTriRXyXim0mBrTXNeqzVF0KWGgHPeiyViFFrNDw=="],
 
-    "yaml": ["yaml@2.8.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-4lLa/EcQCB0cJkyts+FpIRx5G/llPxfP6VQU5KByHEhLxY3IJCH0f0Hy1MHI8sClTvsIb8qwRJ6R/ZdlDJ/leQ=="],
+    "yaml": ["yaml@2.9.1", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw=="],
 
     "yargs": ["yargs@17.7.2", "", { "dependencies": { "cliui": "^8.0.1", "escalade": "^3.1.1", "get-caller-file": "^2.0.5", "require-directory": "^2.1.1", "string-width": "^4.2.3", "y18n": "^5.0.5", "yargs-parser": "^21.1.1" } }, "sha512-7dSzzRQ++CKnNI/krKnYRV7JKKPUXMEh61soaHKg9mrWEhzFWhFnxPxGl+69cD1Ou63C13NUPCnmIcrvqCuM6w=="],
 
@@ -1311,6 +1325,8 @@
     "nx/semver": ["semver@7.7.4", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA=="],
 
     "nx/strip-bom": ["strip-bom@3.0.0", "", {}, "sha512-vavAMRXOgBVNF6nyEEmL3DBK19iRpDcoIwW+swQ+CbGiu7lju6t+JklA1MHweoWtadgt4ISVUsXLyDq34ddcwA=="],
+
+    "nx/yaml": ["yaml@2.8.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-4lLa/EcQCB0cJkyts+FpIRx5G/llPxfP6VQU5KByHEhLxY3IJCH0f0Hy1MHI8sClTvsIb8qwRJ6R/ZdlDJ/leQ=="],
 
     "ora/chalk": ["chalk@4.1.2", "", { "dependencies": { "ansi-styles": "^4.1.0", "supports-color": "^7.1.0" } }, "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="],
 

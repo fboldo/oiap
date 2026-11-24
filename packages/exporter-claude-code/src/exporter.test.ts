@@ -199,6 +199,143 @@ describe("exportClaudeCode", () => {
 	});
 });
 
+describe("exportClaudeCode target features", () => {
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			skills: [
+				...bundleFilesPlugin.skills,
+				{
+					id: "elsewhere",
+					name: "elsewhere",
+					description: "Only for Gemini.",
+					instructions: { id: "review-body", kind: "instruction" },
+					targets: ["gemini-cli"],
+				},
+				{
+					id: "here",
+					name: "here",
+					description: "Only for this host.",
+					instructions: { id: "review-body", kind: "instruction" },
+					targets: ["claude-code"],
+				},
+			],
+			agents: [
+				...bundleFilesPlugin.agents,
+				{
+					id: "gemini-agent",
+					name: "gemini-agent",
+					description: "Only for Gemini.",
+					instructions: { id: "critic-body", kind: "instruction" },
+					targets: ["gemini-cli"],
+				},
+			],
+		});
+		const paths = bundle.files.map((file) => file.path);
+		const evidence = paths
+			.filter((path) => path.startsWith(".oiap/"))
+			.map((path) => readText(bundle, path))
+			.join("\n");
+
+		expect(paths.some((path) => path.includes("elsewhere"))).toBe(false);
+		expect(paths.some((path) => path.includes("gemini-agent"))).toBe(false);
+		expect(evidence).not.toContain("elsewhere");
+		expect(evidence).not.toContain("gemini-agent");
+		expect(paths).toContain("skills/here/SKILL.md");
+	});
+
+	test("merges manifest target metadata and removes null fields", () => {
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				targetMetadata: {
+					"claude-code": { version: null, homepage: "https://example.com/x" },
+					"gemini-cli": { homepage: "https://example.com/gemini" },
+				},
+			},
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".claude-plugin/plugin.json",
+		);
+
+		expect("version" in manifest).toBe(false);
+		expect(manifest.homepage).toBe("https://example.com/x");
+		expect(manifest.description).toBe(bundleFilesPlugin.manifest.description);
+	});
+
+	test("emits target files at the plugin root with resolved paths", () => {
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			targetFiles: {
+				"claude-code": [
+					{
+						path: "scripts/check.sh",
+						content: "cat $" + "{OIAP_PLUGIN_ROOT}/standards/style.md\n",
+						mode: 0o755,
+					},
+				],
+				"gemini-cli": [{ path: "scripts/gemini.sh", content: "echo\n" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+		const script = bundle.files.find(
+			(file) => file.path === "scripts/check.sh",
+		);
+
+		expect(script?.content).toBe(
+			`cat ${"$" + "{CLAUDE_PLUGIN_ROOT}/standards/style.md"}\n`,
+		);
+		expect(script?.mode).toBe(0o755);
+		expect(script?.source?.primitiveKind).toBe("target-file");
+		expect(paths).not.toContain("scripts/gemini.sh");
+	});
+
+	test("reports target files that shadow generated files", () => {
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			targetFiles: { "claude-code": [{ path: "README.md", content: "mine" }] },
+		});
+
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
+
+	test("emits an agent from agentsFrom exactly as written", () => {
+		const content =
+			"---\nname: critic\ndescription: Critic.\ncolor: red\n---\n\nCritique.\n";
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				source: { file: "/repo/agents/critic.md", content },
+			})),
+		});
+
+		expect(readText(bundle, "agents/critic.md")).toBe(content);
+	});
+
+	test("uses the Claude Code host override of a command prompt", () => {
+		const bundle = exportClaudeCode({
+			...sampleClaudePlugin,
+			instructions: sampleClaudePlugin.instructions.map((instruction) =>
+				instruction.id === "status-prompt"
+					? {
+							...instruction,
+							hostOverrides: { "claude-code": "Claude-specific prompt." },
+						}
+					: instruction,
+			),
+		});
+		const command = readText(bundle, "commands/repo-status.md");
+
+		expect(command).toContain("Claude-specific prompt.");
+		expect(command).not.toContain("Run git status and summarize it.");
+	});
+});
+
 const bundleFilesPlugin = {
 	manifest: {
 		id: "bundle-files",

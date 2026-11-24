@@ -8,7 +8,7 @@ bun run oiap build ./oiap.plugin.ts
 ```
 
 By default, the CLI builds every registered target into `dist/oiap/<target>`. The
-current registered targets are Antigravity, Claude Code, Cline, Codex, Cursor,
+current registered targets are Agent Plugins 1.0, Antigravity, Claude Code, Cline, Codex, Cursor,
 Gemini CLI, GitHub Copilot CLI, OpenClaw, OpenCode, VS Code Copilot, and
 Windsurf.
 

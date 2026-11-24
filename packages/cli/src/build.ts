@@ -61,13 +61,16 @@ export async function buildPluginFile(
  * `.oiap/runtime/hooks.mjs`, which drops its imports and module-level helpers.
  * Rebuild that file from the plugin source so handlers run as written.
  */
+const RUNTIME_MANIFEST = /(^|\/)\.oiap\/runtime\/(?:[^/]+\/)?manifest\.json$/;
+
 export async function bundleHooksFromSource(
 	bundle: TargetBundle,
 	inputPath: string,
 	exportName?: string,
 ): Promise<TargetBundle> {
+	// Root runtimes and per-target ones (.oiap/runtime/<target>/) alike.
 	const manifests = bundle.files.filter((file) =>
-		file.path.endsWith(".oiap/runtime/manifest.json"),
+		RUNTIME_MANIFEST.test(file.path),
 	);
 
 	if (manifests.length === 0) {
