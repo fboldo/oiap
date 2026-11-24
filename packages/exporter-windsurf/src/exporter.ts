@@ -347,15 +347,18 @@ function renderSkills(
 			slug(skill.name || skill.id, skill.id),
 			usedSkillSlugs,
 		);
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				triggers: skillTriggers(skill),
-				...targetMetadata(skill.targetMetadata),
-			},
-			renderSkillBody(skill, instruction),
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					triggers: skillTriggers(skill),
+					...targetMetadata(skill.targetMetadata),
+				},
+				renderSkillBody(skill, instruction),
+			);
 
 		return [
 			textFile(

@@ -222,11 +222,11 @@ bunx @oiap/cli sync --check    # CI: exit 1 if the committed files are out of da
 installs from git (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI,
 VS Code Copilot, OpenClaw, Antigravity):
 
-- Hosts that only install the repository root (Gemini CLI, Antigravity,
-  OpenClaw) go at the root and share files such as `skills/` when their copies
-  match.
-- Other hosts share the root when no host would load another host's files, and
-  move to `plugins/<target>/` otherwise. `--layout plugins` always uses
+- Hosts that only install the repository root (Gemini CLI, Antigravity) go at
+  the root and share files such as `skills/` when their copies match.
+- Other hosts share the root when no host would load another host's files and
+  none of their files would overwrite one you wrote, and move to
+  `plugins/<target>/` otherwise. `--layout plugins` always uses
   `plugins/<target>/` for them.
 - It writes the marketplace catalogs that point each host at its plugin
   (`.claude-plugin/marketplace.json`, `.agents/plugins/marketplace.json`,
@@ -236,10 +236,13 @@ VS Code Copilot, OpenClaw, Antigravity):
   `--force`, and it leaves your `README.md` alone.
 - Versions come from `manifest.version`, so every host manifest stays in
   lockstep.
-- OpenClaw's native plugin needs its own `package.json` and entry file at the
-  repository root. If your repository already has a `package.json`, sync stops
-  rather than overwrite it; leave OpenClaw out with `--target`, or publish it
-  from a separate repository.
+- If your repository already keeps skills in a folder, use them in place with
+  `skills: skillsFrom("skills")`. Sync leaves those `SKILL.md` files exactly as
+  you wrote them and lets every host that reads `skills/` share them.
+- OpenClaw's native plugin needs its own `package.json` and entry file. When
+  your repository already has a `package.json`, OpenClaw moves to
+  `plugins/openclaw/`; its `git:` install only reads the repository root, so
+  users install it from a checkout or a published package instead.
 
 Check the files on every pull request with the OIAP GitHub Action. It installs
 your dependencies, runs `oiap sync --check`, annotates degraded or unsupported

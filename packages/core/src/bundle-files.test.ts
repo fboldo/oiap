@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pluginFiles, toPluginIr } from "./authoring.ts";
+import { pluginFiles, skillsFrom, toPluginIr } from "./authoring.ts";
 import {
 	agentAccessDegradation,
 	bundleFileFindings,
@@ -244,5 +244,46 @@ describe("pluginFiles", () => {
 		expect(files[1]?.mode).toBeUndefined();
 		expect(files[2]?.content).toBe("\uFEFFecho");
 		expect(files[2]?.mode).toBe(0o755);
+	});
+});
+
+describe("skillsFrom", () => {
+	test("reads skills in place and synthesizes their instructions", () => {
+		const root = mkdtempSync(join(tmpdir(), "oiap-skills-"));
+		mkdirSync(join(root, "review", "references"), { recursive: true });
+		mkdirSync(join(root, "not-a-skill"));
+		const skillFile =
+			"---\nname: review\ndescription: Review a document.\ndisable-model-invocation: true\nlicense: MIT\n---\n\nRead the guide.\n";
+		writeFileSync(join(root, "review", "SKILL.md"), skillFile);
+		writeFileSync(join(root, "review", "references", "guide.md"), "Guide");
+
+		const skills = skillsFrom(root);
+		const ir = toPluginIr({ skills });
+
+		expect(skills).toHaveLength(1);
+		expect(skills[0]).toMatchObject({
+			id: "review",
+			name: "review",
+			description: "Review a document.",
+			modelInvocable: false,
+			files: [{ path: "references/guide.md", content: "Guide" }],
+			source: { skillFile },
+		});
+		expect(ir.instructions).toEqual([
+			{
+				id: "review-skill-source",
+				purpose: "workflow",
+				triggers: ["review"],
+				body: "Read the guide.\n",
+			},
+		]);
+	});
+
+	test("requires a description", () => {
+		const root = mkdtempSync(join(tmpdir(), "oiap-skills-"));
+		mkdirSync(join(root, "bad"));
+		writeFileSync(join(root, "bad", "SKILL.md"), "---\nname: bad\n---\n");
+
+		expect(() => skillsFrom(root)).toThrow("needs a description");
 	});
 });

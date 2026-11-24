@@ -320,14 +320,17 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(

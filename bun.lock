@@ -17,7 +17,7 @@
     },
     "packages/cli": {
       "name": "@oiap/cli",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "bin": {
         "oiap": "./dist/cli.js",
       },
@@ -42,14 +42,17 @@
     },
     "packages/core": {
       "name": "@oiap/core",
-      "version": "0.3.0",
+      "version": "0.4.0",
+      "dependencies": {
+        "yaml": "^2",
+      },
       "peerDependencies": {
         "typescript": "^5",
       },
     },
     "packages/exporter-antigravity": {
       "name": "@oiap/exporter-antigravity",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -60,7 +63,7 @@
     },
     "packages/exporter-claude-code": {
       "name": "@oiap/exporter-claude-code",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -71,7 +74,7 @@
     },
     "packages/exporter-cline": {
       "name": "@oiap/exporter-cline",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -82,7 +85,7 @@
     },
     "packages/exporter-codex": {
       "name": "@oiap/exporter-codex",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -93,7 +96,7 @@
     },
     "packages/exporter-cursor": {
       "name": "@oiap/exporter-cursor",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -104,7 +107,7 @@
     },
     "packages/exporter-gemini-cli": {
       "name": "@oiap/exporter-gemini-cli",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -115,7 +118,7 @@
     },
     "packages/exporter-github-copilot-cli": {
       "name": "@oiap/exporter-github-copilot-cli",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -126,7 +129,7 @@
     },
     "packages/exporter-openclaw": {
       "name": "@oiap/exporter-openclaw",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -137,7 +140,7 @@
     },
     "packages/exporter-opencode": {
       "name": "@oiap/exporter-opencode",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -148,7 +151,7 @@
     },
     "packages/exporter-vscode-copilot": {
       "name": "@oiap/exporter-vscode-copilot",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -159,7 +162,7 @@
     },
     "packages/exporter-windsurf": {
       "name": "@oiap/exporter-windsurf",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
         "@oiap/runtime": "workspace:*",
@@ -170,7 +173,7 @@
     },
     "packages/install-agent-plugin": {
       "name": "install-agent-plugin",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "bin": {
         "install-agent-plugin": "./dist/cli.js",
       },
@@ -195,7 +198,7 @@
     },
     "packages/runtime": {
       "name": "@oiap/runtime",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@oiap/core": "workspace:*",
       },

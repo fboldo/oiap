@@ -291,20 +291,23 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				compatibility: "opencode",
-				// "Set to true for the same effect as opencode/autoinvoke: false":
-				// the skill leaves the model's list and stays loadable as @skill-id.
-				// https://opencode.ai/docs/skills/
-				"disable-model-invocation":
-					skill.modelInvocable === false ? true : undefined,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					compatibility: "opencode",
+					// "Set to true for the same effect as opencode/autoinvoke: false":
+					// the skill leaves the model's list and stays loadable as @skill-id.
+					// https://opencode.ai/docs/skills/
+					"disable-model-invocation":
+						skill.modelInvocable === false ? true : undefined,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(

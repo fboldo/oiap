@@ -144,6 +144,48 @@ describe("exportClaudeCode", () => {
 		);
 	});
 
+	test("writes remote MCP servers in Claude's format and reports dropped fields", () => {
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			tools: [
+				{
+					id: "docs",
+					transport: "mcp-http",
+					tools: [],
+					server: {
+						url: "https://docs.example.com/mcp",
+						headers: { Authorization: "Bearer $" + "{DOCS_TOKEN}" },
+						auth: { mode: "header", secretRef: "DOCS_TOKEN" },
+					},
+				},
+			],
+		});
+		const mcp = JSON.parse(readText(bundle, ".mcp.json"));
+
+		expect(mcp.mcpServers.docs).toEqual({
+			type: "http",
+			url: "https://docs.example.com/mcp",
+			headers: { Authorization: "Bearer $" + "{DOCS_TOKEN}" },
+		});
+		expect(
+			bundle.report.degradedCapabilities.map((entry) => entry.from),
+		).toContain("oiap-mcp-server");
+	});
+
+	test("emits a skill from skillsFrom exactly as written", () => {
+		const skillFile =
+			"---\nname: review\ndescription: Review.\nlicense: MIT\n---\n\nBody.\n";
+		const bundle = exportClaudeCode({
+			...bundleFilesPlugin,
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				source: { directory: "/repo/skills/review", skillFile },
+			})),
+		});
+
+		expect(readText(bundle, "skills/review/SKILL.md")).toBe(skillFile);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportClaudeCode({
 			...bundleFilesPlugin,

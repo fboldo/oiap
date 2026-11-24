@@ -109,12 +109,12 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		marketplace: "cursor",
 	},
 	// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
+	// Its own root plugin.json is found before .claude-plugin/plugin.json.
 	"github-copilot-cli": {
 		rootOnly: false,
 		reads: [
 			"plugin.json",
 			".plugin/plugin.json",
-			".claude-plugin/plugin.json",
 			"skills/",
 			"agents/",
 			"hooks.json",
@@ -212,8 +212,12 @@ export function planSync(
 	plugin: CliPluginInput,
 	bundles: Map<string, TargetBundle>,
 	layout: SyncLayout,
-	/** Repository files the author wrote, which no target may overwrite. */
-	reserved: ReadonlySet<string> = new Set(),
+	/**
+	 * Files the author wrote, by path. A target that would write different
+	 * content at one of these paths moves off the root; identical files, such
+	 * as skills used with `skillsFrom`, are shared and stay the author's.
+	 */
+	authored: ReadonlyMap<string, Buffer> = new Map(),
 ): SyncPlan {
 	const manifest = getManifest(plugin);
 	const placed = new Map<string, PlacedFile>();
@@ -269,7 +273,10 @@ export function planSync(
 			);
 		} else if (
 			layout === "plugins" ||
-			files.some((file) => reserved.has(file.path)) ||
+			files.some((file) => {
+				const own = authored.get(file.path);
+				return own !== undefined && !own.equals(toBuffer(file.content));
+			}) ||
 			pathConflicts(files, placed).length > 0 ||
 			foreignReads(target, files, placed, rootTargets).length > 0
 		) {
@@ -320,6 +327,7 @@ export function planSync(
 	}
 
 	const files = [...placed.values()]
+		.filter((entry) => !authored.get(entry.file.path)?.equals(entry.content))
 		.map((entry) => entry.file)
 		.sort((left, right) => left.path.localeCompare(right.path));
 	const lock: SyncLock = {
@@ -626,6 +634,17 @@ export async function syncPluginFile(
 		const target = resolveRepoPath(repoDir, difference.path);
 
 		if (difference.kind === "stale") {
+			// Only remove a file that is still exactly what the last sync wrote.
+			const current = await readOptional(target);
+			const expected = previous?.files[difference.path];
+
+			if (current && expected && hash(current) !== expected) {
+				plan.notes.push(
+					`Kept ${difference.path}: it changed since the last sync. Delete it by hand if it is no longer needed.`,
+				);
+				continue;
+			}
+
 			await rm(target, { force: true });
 			await removeEmptyParents(repoDir, dirname(target));
 			result.removed.push(difference.path);
@@ -651,33 +670,35 @@ export async function syncPluginFile(
 }
 
 /**
- * Root paths that some target would write but that already exist in the
- * repository without a previous sync having written them: the author's files.
+ * Paths some target would write that already exist in the repository without
+ * a previous sync having written them: the author's files, with their content.
  */
 async function authorFiles(
 	repoDir: string,
 	bundles: Map<string, TargetBundle>,
 	previous: SyncLock | undefined,
-): Promise<Set<string>> {
+): Promise<Map<string, Buffer>> {
 	const generated = new Set(Object.keys(previous?.files ?? {}));
 	const candidates = new Set(
 		[...bundles.values()].flatMap((bundle) =>
 			bundle.files.map((file) => file.path),
 		),
 	);
-	const reserved = new Set<string>();
+	const authored = new Map<string, Buffer>();
 
 	for (const path of candidates) {
-		if (
-			!generated.has(path) &&
-			!BUNDLE_ONLY_FILES.has(path) &&
-			existsSync(resolveRepoPath(repoDir, path))
-		) {
-			reserved.add(path);
+		if (generated.has(path) || BUNDLE_ONLY_FILES.has(path)) {
+			continue;
+		}
+
+		const content = await readOptional(resolveRepoPath(repoDir, path));
+
+		if (content) {
+			authored.set(path, content);
 		}
 	}
 
-	return reserved;
+	return authored;
 }
 
 export function selectSyncTargets(

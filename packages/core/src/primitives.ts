@@ -237,7 +237,19 @@ export interface SkillAsset {
 	modelInvocable?: boolean;
 	/** false: hidden from the user's slash commands; only the model loads it. */
 	userInvocable?: boolean;
+	/**
+	 * Set by `skillsFrom`/`skillFrom`: the skill already lives in the repository
+	 * and exporters emit its SKILL.md and files unchanged.
+	 */
+	source?: SkillSource;
 	targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
+}
+
+export interface SkillSource {
+	/** Absolute path of the skill directory in the repository. */
+	directory: string;
+	/** The SKILL.md exactly as written, frontmatter included. */
+	skillFile: string;
 }
 
 /**

@@ -237,15 +237,18 @@ function renderSkill(
 	const body =
 		instruction?.body ??
 		`Skill instruction reference not found: ${skill.instructions.id}`;
-	const content = withFrontmatter(
-		{
-			name: skill.name,
-			description: skill.description,
-			...skillInvocationFrontmatter(skill),
-			...targetMetadata(skill.targetMetadata),
-		},
-		body,
-	);
+	// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+	const content =
+		skill.source?.skillFile ??
+		withFrontmatter(
+			{
+				name: skill.name,
+				description: skill.description,
+				...skillInvocationFrontmatter(skill),
+				...targetMetadata(skill.targetMetadata),
+			},
+			body,
+		);
 
 	return textFile(
 		`skills/${slug(skill.id)}/SKILL.md`,
@@ -424,9 +427,13 @@ function renderMcpFiles(tools: ToolSurface[]): RenderedFile[] {
 	return [renderMcpConfig(tools)];
 }
 
+// Claude Code .mcp.json servers: stdio (command, args, env) or remote
+// (type http|sse, url, headers). https://code.claude.com/docs/en/mcp
 function renderMcpConfig(tools: ToolSurface[]): RenderedFile {
 	const mcpServers = Object.fromEntries(
-		tools.filter((tool) => tool.server).map((tool) => [tool.id, tool.server]),
+		tools.flatMap((tool) =>
+			tool.server ? [[tool.id, claudeMcpServer(tool)]] : [],
+		),
 	);
 
 	return jsonFile(
@@ -434,6 +441,45 @@ function renderMcpConfig(tools: ToolSurface[]): RenderedFile {
 		{ mcpServers },
 		sourceRef("claude-settings", "settings"),
 	);
+}
+
+function claudeMcpServer(tool: ToolSurface): Record<string, unknown> {
+	const server = tool.server ?? {};
+
+	if (tool.transport === "mcp-http" || tool.transport === "mcp-sse") {
+		return omitUndefined({
+			type: tool.transport === "mcp-sse" ? "sse" : "http",
+			url: server.url ?? server.httpUrl,
+			headers: server.headers,
+		});
+	}
+
+	return omitUndefined({
+		command: server.command,
+		args: server.args,
+		env: server.env,
+	});
+}
+
+/** McpServer fields Claude Code's .mcp.json has no place for. */
+function unmappedMcpFields(tools: ToolSurface[]): string[] {
+	const fields = new Set<string>();
+
+	for (const tool of tools) {
+		for (const field of [
+			"cwd",
+			"includeTools",
+			"excludeTools",
+			"auth",
+			"required",
+		] as const) {
+			if (tool.server?.[field] !== undefined) {
+				fields.add(field);
+			}
+		}
+	}
+
+	return [...fields].sort();
 }
 
 function renderPolicyEvidence(policies: PermissionPolicy[]): RenderedFile {
@@ -559,6 +605,17 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: "not-emitted",
 			reason:
 				"Claude Code plugins do not load root CLAUDE.md context; rules must be represented as skills, agents, hooks, or target-specific plugin files.",
+		});
+	}
+
+	const droppedMcpFields = unmappedMcpFields(ir.tools);
+
+	if (droppedMcpFields.length > 0) {
+		degradations.push({
+			capability: { kind: "mcp", target: CLAUDE_CODE_TARGET },
+			from: "oiap-mcp-server",
+			to: "claude-mcp-server",
+			reason: `Claude Code .mcp.json has no field for ${droppedMcpFields.join(", ")}; those settings were left out.`,
 		});
 	}
 

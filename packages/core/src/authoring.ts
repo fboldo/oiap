@@ -1,6 +1,15 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+	sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 import type { HookDefinition, TargetModuleRef } from "./hooks.ts";
 import type {
 	AgentDefinition,
@@ -19,6 +28,7 @@ import type {
 	ProjectRule,
 	RuntimeModule,
 	SkillAsset,
+	InstructionModule as SkillInstruction,
 	TargetId,
 	ToolSurface,
 	Workflow,
@@ -140,11 +150,126 @@ function listFiles(directory: string): string[] {
 	});
 }
 
+export interface SkillsFromOptions extends MarkdownFileOptions {
+	/** Return false to leave a skill directory out; receives its name. */
+	include?: (name: string) => boolean;
+}
+
+/**
+ * Use the skills a repository already has: every `<directory>/<name>/SKILL.md`
+ * becomes a skill that exporters emit unchanged, with its sibling files.
+ * Frontmatter is read for `name`, `description`,
+ * `disable-model-invocation` and `user-invocable`; other keys stay in the file.
+ */
+export function skillsFrom(
+	directory: string | URL,
+	options: SkillsFromOptions = {},
+): SkillAsset[] {
+	const root = resolveMarkdownFilePath(directory, options);
+
+	if (!existsSync(root) || !statSync(root).isDirectory()) {
+		throw new Error(`Skills directory not found: ${root}`);
+	}
+
+	return readdirSync(root, { withFileTypes: true })
+		.filter(
+			(entry) =>
+				entry.isDirectory() &&
+				existsSync(join(root, entry.name, "SKILL.md")) &&
+				(options.include?.(entry.name) ?? true),
+		)
+		.map((entry) => entry.name)
+		.sort()
+		.map((name) => skillFrom(join(root, name)));
+}
+
+/** Use one skill directory that already exists in the repository; see `skillsFrom`. */
+export function skillFrom(
+	directory: string | URL,
+	options: MarkdownFileOptions = {},
+): SkillAsset {
+	const skillDirectory = resolveMarkdownFilePath(directory, options);
+	const skillFile = readFileSync(join(skillDirectory, "SKILL.md"), "utf8");
+	const { frontmatter } = splitFrontmatter(skillFile);
+	const id = basename(skillDirectory);
+	const description = frontmatter.description;
+
+	if (typeof description !== "string" || description.trim() === "") {
+		throw new Error(
+			`${join(skillDirectory, "SKILL.md")} needs a description in its frontmatter.`,
+		);
+	}
+
+	return {
+		id,
+		name: typeof frontmatter.name === "string" ? frontmatter.name : id,
+		description: description.trim(),
+		instructions: { id: skillSourceInstructionId(id), kind: "instruction" },
+		files: pluginFiles(skillDirectory, {
+			include: (path) => path !== "SKILL.md",
+		}),
+		modelInvocable:
+			frontmatter["disable-model-invocation"] === true ? false : undefined,
+		userInvocable: frontmatter["user-invocable"] === false ? false : undefined,
+		source: { directory: skillDirectory, skillFile },
+	};
+}
+
+function skillSourceInstructionId(id: string): string {
+	return `${id}-skill-source`;
+}
+
+function splitFrontmatter(text: string): {
+	frontmatter: Record<string, unknown>;
+	body: string;
+} {
+	const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+
+	if (!match) {
+		return { frontmatter: {}, body: text };
+	}
+
+	const parsed: unknown = parseYaml(match[1] ?? "");
+
+	return {
+		frontmatter:
+			parsed && typeof parsed === "object" && !Array.isArray(parsed)
+				? (parsed as Record<string, unknown>)
+				: {},
+		body: text.slice(match[0].length),
+	};
+}
+
+/** Instruction modules for in-place skills whose body the definition does not declare. */
+function skillSourceInstructions(
+	definition: PluginDefinition,
+): SkillInstruction[] {
+	const declared = new Set(
+		(definition.instructions ?? []).map((instruction) => instruction.id),
+	);
+
+	return (definition.skills ?? []).flatMap((skill) =>
+		skill.source && !declared.has(skill.instructions.id)
+			? [
+					{
+						id: skill.instructions.id,
+						purpose: "workflow" as const,
+						triggers: [skill.name],
+						body: splitFrontmatter(skill.source.skillFile).body.trimStart(),
+					},
+				]
+			: [],
+	);
+}
+
 export function toPluginIr(definition: PluginDefinition): PluginIr {
 	return {
 		manifest: definition.manifest,
 		invocations: definition.invocations ?? [],
-		instructions: definition.instructions ?? [],
+		instructions: [
+			...(definition.instructions ?? []),
+			...skillSourceInstructions(definition),
+		],
 		commands: definition.commands ?? [],
 		workflows: definition.workflows ?? [],
 		rules: definition.rules ?? [],

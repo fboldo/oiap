@@ -457,6 +457,26 @@ export interface SkillAsset {
 }
 ```
 
+Repositories that already keep their skills in a folder can use them in place:
+
+```ts
+import { definePlugin, skillsFrom } from "@oiap/core";
+
+export default definePlugin({
+  manifest: { /* ... */ },
+  skills: skillsFrom("skills"), // every skills/<name>/SKILL.md
+});
+```
+
+`skillsFrom(directory)` and `skillFrom(directory)` read each `SKILL.md` for
+`name`, `description`, `disable-model-invocation` and `user-invocable`, and
+set `SkillAsset.source`. Exporters then emit that `SKILL.md` and its sibling
+files exactly as written, keeping frontmatter OIAP does not model (`license`,
+`metadata`, `allowed-tools`). `oiap sync` treats those files as the author's: it
+never rewrites or deletes them, and hosts that read the root `skills/` share
+them. Host-specific needs go into separate files (Codex `agents/openai.yaml`)
+or are reported as degradations; path tokens are not resolved inside them.
+
 `modelInvocable: false` makes a skill user-only (host
 `disable-model-invocation: true`); `userInvocable: false` hides it from the
 user's slash commands. Hosts without a control report a degradation.

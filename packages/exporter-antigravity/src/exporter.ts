@@ -374,19 +374,22 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				// `disable-model-invocation: true` limits the skill to /<name>.
-				// No key hides a skill from the user (see collectDegradedCapabilities).
-				// https://antigravity.google/docs/build-plugins.md
-				"disable-model-invocation":
-					skill.modelInvocable === false ? true : undefined,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					// `disable-model-invocation: true` limits the skill to /<name>.
+					// No key hides a skill from the user (see collectDegradedCapabilities).
+					// https://antigravity.google/docs/build-plugins.md
+					"disable-model-invocation":
+						skill.modelInvocable === false ? true : undefined,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(

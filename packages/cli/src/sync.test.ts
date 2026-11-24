@@ -19,6 +19,10 @@ import {
 	syncPluginFile,
 } from "./sync.ts";
 
+interface SyncLockShape {
+	files: Record<string, string>;
+}
+
 const manifest = {
 	id: "sample",
 	name: "Sample",
@@ -177,13 +181,41 @@ describe("planSync with author files", () => {
 				],
 			]),
 			"root",
-			new Set(["package.json"]),
+			new Map([["package.json", Buffer.from('{"name":"author"}')]]),
 		);
 
 		expect(plan.placements[0]?.directory).toBe("plugins/openclaw");
 		expect(plan.files.map((file) => file.path)).toContain(
 			"plugins/openclaw/package.json",
 		);
+	});
+});
+
+describe("planSync with identical author files", () => {
+	test("shares them, keeps the host at the root, and leaves them out of the output", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"claude-code",
+					bundle("claude-code", {
+						".claude-plugin/plugin.json": "{}",
+						"skills/a/SKILL.md": "Authored",
+					}),
+				],
+			]),
+			"root",
+			new Map([["skills/a/SKILL.md", Buffer.from("Authored")]]),
+		);
+		const lock = JSON.parse(
+			String(plan.files.find((file) => file.path === SYNC_LOCK_PATH)?.content),
+		);
+
+		expect(plan.placements[0]?.directory).toBe("");
+		expect(plan.files.map((file) => file.path)).not.toContain(
+			"skills/a/SKILL.md",
+		);
+		expect(Object.keys(lock.files)).not.toContain("skills/a/SKILL.md");
 	});
 });
 
@@ -244,6 +276,107 @@ describe("syncPluginFile", () => {
 		);
 		return { repo, pluginFile };
 	}
+
+	test("uses the repository's own skills in place", async () => {
+		// The repository lives inside the workspace so its plugin file can import @oiap/core.
+		const repo = mkdtempSync(
+			join(resolve(import.meta.dir, ".."), ".sync-in-place-"),
+		);
+		directories.push(repo);
+		const skillFile = [
+			"---",
+			"name: review",
+			"description: Review a document.",
+			"license: MIT",
+			"metadata:",
+			"  owner: docs-team",
+			"---",
+			"",
+			"Read references/guide.md, then review.",
+			"",
+		].join("\n");
+		mkdirSync(join(repo, "skills", "review", "references"), {
+			recursive: true,
+		});
+		writeFileSync(join(repo, "skills", "review", "SKILL.md"), skillFile);
+		writeFileSync(
+			join(repo, "skills", "review", "references", "guide.md"),
+			"Guide",
+		);
+		writeFileSync(
+			join(repo, "oiap.plugin.ts"),
+			`import { definePlugin, skillsFrom } from "@oiap/core";
+
+export default definePlugin({
+	manifest: ${JSON.stringify({
+		...manifest,
+		supportedTargets: ["gemini-cli", "claude-code", "codex", "cursor"],
+	})},
+	skills: skillsFrom("skills"),
+});
+`,
+		);
+		const options = {
+			inputPath: join(repo, "oiap.plugin.ts"),
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		const first = await syncPluginFile({ ...options, check: false });
+		const lock = JSON.parse(
+			readFileSync(join(repo, SYNC_LOCK_PATH), "utf8"),
+		) as SyncLockShape;
+
+		expect(
+			Object.fromEntries(
+				first.plan.placements.map((placement) => [
+					placement.target,
+					placement.directory,
+				]),
+			),
+		).toEqual({
+			"gemini-cli": "",
+			"claude-code": "",
+			codex: "",
+			cursor: "",
+		});
+		expect(
+			readFileSync(join(repo, "skills", "review", "SKILL.md"), "utf8"),
+		).toBe(skillFile);
+		expect(first.written).not.toContain("skills/review/SKILL.md");
+		expect(
+			Object.keys(lock.files).some((path) => path.startsWith("skills/")),
+		).toBe(false);
+
+		const second = await syncPluginFile({ ...options, check: true });
+		expect(second.differences).toEqual([]);
+	});
+
+	test("keeps a stale file the author changed", async () => {
+		const { repo, pluginFile } = fixture();
+		const options = {
+			inputPath: pluginFile,
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		await syncPluginFile({ ...options, check: false });
+		writeFileSync(
+			join(repo, ".codex-plugin", "plugin.json"),
+			'{"edited":true}\n',
+		);
+		const narrowed = await syncPluginFile({
+			...options,
+			targets: ["claude-code"],
+			check: false,
+		});
+
+		expect(narrowed.removed).not.toContain(".codex-plugin/plugin.json");
+		expect(existsSync(join(repo, ".codex-plugin", "plugin.json"))).toBe(true);
+		expect(narrowed.plan.notes.join("\n")).toContain(
+			"Kept .codex-plugin/plugin.json",
+		);
+	});
 
 	test("writes, checks, removes stale files and protects hand-written files", async () => {
 		const { repo, pluginFile } = fixture();
