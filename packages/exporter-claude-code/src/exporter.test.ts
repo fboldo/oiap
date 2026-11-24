@@ -92,6 +92,58 @@ describe("exportClaudeCode", () => {
 		expect(bundle.report.status).toBe("ok");
 	});
 
+	test("maps manifest metadata, skill invocation and host instructions", () => {
+		const bundle = exportClaudeCode(hostFieldsPlugin);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".claude-plugin/plugin.json",
+		);
+
+		expect(manifest.displayName).toBe("Bundle Files Pro");
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.author).toEqual({
+			name: "Docs Team",
+			email: "docs@example.com",
+			url: "https://example.com",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle");
+		expect(manifest.icon).toBe("./assets/logo.svg");
+		expect(manifest.logo).toBeUndefined();
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+
+		const skill = readText(bundle, "skills/review/SKILL.md");
+		expect(skill).toContain("disable-model-invocation: true");
+		expect(skill).toContain("user-invocable: false");
+
+		expect(readText(bundle, "agents/critic.md")).toContain(
+			"omitClaudeMd: true",
+		);
+		expect(bundle.report.status).toBe("ok");
+	});
+
+	test("omits invocation and host-instruction keys by default", () => {
+		const bundle = exportClaudeCode(bundleFilesPlugin);
+
+		expect(readText(bundle, "skills/review/SKILL.md")).not.toContain(
+			"invocation",
+		);
+		expect(readText(bundle, "agents/critic.md")).not.toContain("omitClaudeMd");
+	});
+
+	test("targetMetadata overrides mapped frontmatter", () => {
+		const bundle = exportClaudeCode({
+			...hostFieldsPlugin,
+			agents: hostFieldsPlugin.agents.map((agent) => ({
+				...agent,
+				targetMetadata: { "claude-code": { omitClaudeMd: false } },
+			})),
+		});
+
+		expect(readText(bundle, "agents/critic.md")).toContain(
+			"omitClaudeMd: false",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportClaudeCode({
 			...bundleFilesPlugin,
@@ -150,6 +202,35 @@ const bundleFilesPlugin = {
 		},
 	],
 	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
+
+const hostFieldsPlugin = {
+	...bundleFilesPlugin,
+	manifest: {
+		...bundleFilesPlugin.manifest,
+		displayName: "Bundle Files Pro",
+		keywords: ["review", "docs"],
+		logo: "assets/logo.svg",
+		author: {
+			name: "Docs Team",
+			email: "docs@example.com",
+			url: "https://example.com",
+		},
+		repository: "https://github.com/example/bundle",
+	},
+	skills: bundleFilesPlugin.skills.map((skill) => ({
+		...skill,
+		modelInvocable: false,
+		userInvocable: false,
+	})),
+	agents: bundleFilesPlugin.agents.map((agent) => ({
+		...agent,
+		hostInstructions: "exclude" as const,
+	})),
+	resources: [
+		...bundleFilesPlugin.resources,
+		{ path: "assets/logo.svg", content: "<svg/>" },
+	],
 } satisfies PluginDefinition;
 
 const sampleClaudePlugin = {

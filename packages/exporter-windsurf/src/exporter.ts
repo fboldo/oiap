@@ -231,14 +231,29 @@ function renderWindsurfFiles(ir: PluginIr): RenderedFile[] {
 
 function renderTargetManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
+	// A workspace bundle has no host manifest. This OIAP target manifest keeps
+	// the publisher metadata under the key names of the Devin plugin manifest
+	// (.devin-plugin/plugin.json: author, repository, keywords, and logo as a
+	// path relative to the plugin directory), which has no displayName.
+	// https://docs.devin.ai/cli/extensibility/plugins/overview.md#metadata
 	const content = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
-		displayName: manifest.name,
+		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords:
+			manifest.keywords && manifest.keywords.length > 0
+				? manifest.keywords
+				: manifest.categories.length > 0
+					? manifest.categories
+					: undefined,
+		logo: manifest.logo
+			? `${resourceRoot(ir)}/${sanitizeRelativePath(manifest.logo)}`
+			: undefined,
 		target: WINDSURF_TARGET,
 		rules: hasRuleOutput(ir) ? `${RULES_DIR}/` : undefined,
 		skills: hasSkillOutput(ir) ? `${SKILLS_DIR}/` : undefined,
@@ -336,6 +351,7 @@ function renderSkills(
 			{
 				name: skillSlug,
 				description: skill.description,
+				triggers: skillTriggers(skill),
 				...targetMetadata(skill.targetMetadata),
 			},
 			renderSkillBody(skill, instruction),
@@ -354,6 +370,22 @@ function renderSkills(
 			),
 		];
 	});
+}
+
+/**
+ * `triggers` lists who may invoke a skill: `user` (/skill-name) and `model`
+ * (the agent on its own); the default is both.
+ * https://docs.devin.ai/cli/extensibility/skills/overview.md#skill-triggers
+ */
+function skillTriggers(skill: SkillAsset): string[] | undefined {
+	if (skill.modelInvocable !== false && skill.userInvocable !== false) {
+		return undefined;
+	}
+
+	return [
+		...(skill.userInvocable === false ? [] : ["user"]),
+		...(skill.modelInvocable === false ? [] : ["model"]),
+	];
 }
 
 function renderCommandsAsSkills(
@@ -1084,6 +1116,22 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: ".devin/agents subagent profiles",
 			reason:
 				"Custom subagent files are documented for Devin CLI; Devin Desktop gates subagents behind a preview setting and does not document reading these files.",
+		});
+	}
+
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	// Subagent frontmatter has name, description, model, allowed-tools and
+	// max-nesting only; nothing keeps workspace rules or AGENTS.md out.
+	// https://docs.devin.ai/cli/subagents.md#frontmatter-fields
+	if (isolatedAgents.length > 0) {
+		degraded.push({
+			capability: { kind: "agents", target: WINDSURF_TARGET },
+			from: 'hostInstructions: "exclude"',
+			to: "subagent with workspace rules",
+			reason: `Windsurf subagent profiles have no setting that leaves out the workspace's rules and AGENTS.md, so ${isolatedAgents.map((agent) => agent.id).join(", ")} may receive them.`,
 		});
 	}
 

@@ -44,21 +44,17 @@ bun run oiap build examples/elephant-goldfish-model/oiap.plugin.ts --out dist/ex
 
 ## Remaining gaps
 
-1. **No context isolation flag.** EGM reviewers must start without host
-   instruction files: Claude `omitClaudeMd: true`, Copilot
-   `include-custom-instructions: false`. Hosts without a control should report
-   the capability as unsupported, and EGM should be able to require it.
-2. **Agent names change per target.** Codex writes `egm_style`; the skills
-   dispatch `egm-style`.
-3. **User-only skills are per-target metadata.** EGM marks every skill
-   `disable-model-invocation: true`. This example passes it through
-   `targetMetadata` for Claude and Codex only; other targets lose it.
-4. **Manifest metadata is too thin.** EGM's manifests carry author,
-   repository, display name, logo and icon, support, privacy and terms URLs,
-   brand colour, default prompts, and Codex `requires_local_executor`.
-5. **No marketplace catalogs.** EGM ships `.claude-plugin/marketplace.json`,
-   `.cursor-plugin/marketplace.json` and `.agents/plugins/marketplace.json`.
-6. **Host-specific text in the skills.** EGM skills point at
+1. **Host-specific text in the skills.** EGM skills point at
    `${CLAUDE_PLUGIN_ROOT}/docs/claude.md` and `../../docs/codex.md`. The port
    does not ship `docs/`, and those lines would need per-target instruction
    overrides.
+2. **Hosts without a control** for read-only agents, user-only skills or
+   excluding host instruction files report a degradation instead (see each
+   target's capability report). EGM keeps those guarantees only on hosts that
+   support them.
+
+Gaps closed since the first port: Codex keeps agent names such as `egm-style`;
+user-only skills use `modelInvocable: false`; reviewers use
+`hostInstructions: "exclude"` (Claude `omitClaudeMd`, Copilot
+`include-custom-instructions: false`); manifests carry display name, author,
+repository and keywords; `oiap sync` writes the marketplace catalogs.

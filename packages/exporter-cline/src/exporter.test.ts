@@ -1,7 +1,12 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import type { PluginDefinition, TargetBundle } from "@oiap/core";
+import type {
+	AgentDefinition,
+	PluginDefinition,
+	SkillAsset,
+	TargetBundle,
+} from "@oiap/core";
 import { exportCline } from "./exporter.ts";
 
 const target = "cline";
@@ -143,6 +148,60 @@ describe("exportCline", () => {
 		);
 	});
 
+	test("degrades skill invocation controls Cline lacks", () => {
+		const bundle = exportCline({
+			...invocationPlugin,
+			skills: [
+				{ ...manualSkill, modelInvocable: false },
+				{ ...backgroundSkill, userInvocable: false },
+			],
+		});
+		const degradations = bundle.report.degradedCapabilities;
+
+		expect(degradations).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "skills", target },
+				from: "modelInvocable: false",
+			}),
+		);
+		expect(degradations).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "skills", target },
+				from: "userInvocable: false",
+			}),
+		);
+		expect(bundle.report.status).toBe("degraded");
+		expect(readText(bundle, ".cline/skills/manual/SKILL.md")).not.toContain(
+			"invocation",
+		);
+	});
+
+	test("runs agents without project rules and reports ok", () => {
+		const bundle = exportCline({
+			...invocationPlugin,
+			agents: [{ ...isolatedAgent, hostInstructions: "exclude" }],
+		});
+
+		expect(bundle.report.degradedCapabilities).toEqual([]);
+		expect(bundle.report.status).toBe("ok");
+		expect(readText(bundle, ".cline/agents/isolated.yaml")).not.toContain(
+			"hostInstructions",
+		);
+	});
+
+	test("records publisher metadata in the target manifest", () => {
+		const manifest = readJson<Record<string, unknown>>(
+			exportCline(invocationPlugin),
+			".oiap/cline-target.json",
+		);
+
+		expect(manifest.displayName).toBe("Invocation Controls");
+		expect(manifest.keywords).toEqual(["review"]);
+		expect(manifest.author).toEqual({ name: "Ada", email: "ada@example.com" });
+		expect(manifest.repository).toBe("https://github.com/example/invocation");
+		expect(manifest.logo).toBeUndefined();
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportCline({
 			...bundleFilesPlugin,
@@ -158,6 +217,56 @@ describe("exportCline", () => {
 		);
 	});
 });
+
+const manualSkill = {
+	id: "manual",
+	name: "manual",
+	description: "Run only when asked.",
+	instructions: { id: "manual-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const backgroundSkill = {
+	id: "background",
+	name: "background",
+	description: "Background knowledge.",
+	instructions: { id: "background-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const isolatedAgent = {
+	id: "isolated",
+	name: "isolated",
+	description: "Runs without project instructions.",
+	instructions: { id: "isolated-body", kind: "instruction" },
+} satisfies AgentDefinition;
+
+const invocationPlugin = {
+	manifest: {
+		id: "invocation",
+		name: "Invocation",
+		displayName: "Invocation Controls",
+		version: "1.0.0",
+		description: "Skill and agent invocation controls.",
+		keywords: ["review"],
+		logo: "assets/logo.svg",
+		author: { name: "Ada", email: "ada@example.com" },
+		repository: "https://github.com/example/invocation",
+		categories: ["testing"],
+		supportedTargets: [target],
+	},
+	instructions: [
+		{ id: "manual-body", purpose: "command", triggers: [], body: "Manual." },
+		{
+			id: "background-body",
+			purpose: "always_on",
+			triggers: [],
+			body: "Background.",
+		},
+		{ id: "isolated-body", purpose: "agent", triggers: [], body: "Isolated." },
+	],
+	skills: [manualSkill, backgroundSkill],
+	agents: [isolatedAgent],
+	resources: [{ path: "assets/logo.svg", content: "<svg/>" }],
+} satisfies PluginDefinition;
 
 const bundleFilesPlugin = {
 	manifest: {

@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	ProjectRule,
 	RenderedFile,
 	RuntimeModule,
@@ -189,6 +190,9 @@ function renderGitHubCopilotCliFiles(ir: PluginIr): RenderedFile[] {
 // Legacy (non-Agent Plugins 1.0) manifest: Agent Plugins 1.0 has a closed
 // schema without component path fields and does not define a commands or rules
 // file format, so OIAP emits the legacy manifest with explicit component paths.
+// The legacy manifest documents author ({name, email?, url?}), repository and
+// keywords, but no display name or logo field, so `displayName` and `logo` are
+// not emitted (the logo file still ships as a plugin resource).
 // https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
@@ -201,9 +205,11 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		name: slug(manifest.id, "oiap-plugin"),
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
 		category: manifest.categories[0],
 		skills: hasSkills ? "skills/" : undefined,
 		commands: hasCommands ? "commands/" : undefined,
@@ -213,6 +219,16 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	});
 
 	return jsonFile("plugin.json", content, sourceRef(manifest.id, "manifest"));
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
 }
 
 function renderSkills(
@@ -230,6 +246,7 @@ function renderSkills(
 			{
 				name: skillSlug,
 				description: skill.description,
+				...skillInvocationFrontmatter(skill),
 				...targetMetadata(skill.targetMetadata),
 			},
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
@@ -247,6 +264,19 @@ function renderSkills(
 				sourceRef(skill.id, "skill-file"),
 			),
 		];
+	});
+}
+
+// SKILL.md `user-invocable` (default true) and `disable-model-invocation`
+// (default false); only non-default values are written.
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+function skillInvocationFrontmatter(
+	skill: SkillAsset,
+): Record<string, unknown> {
+	return omitUndefined({
+		"user-invocable": skill.userInvocable === false ? false : undefined,
+		"disable-model-invocation":
+			skill.modelInvocable === false ? true : undefined,
 	});
 }
 
@@ -350,12 +380,30 @@ function renderAgent(
 			description: agent.description,
 			model: agent.model,
 			tools: agentTools(agent),
+			"include-custom-instructions": includeCustomInstructions(agent),
 			...targetMetadata(agent.targetMetadata),
 		},
 		body,
 	);
 
 	return textFile(agentPath(agent), content, sourceRef(agent.id, "agent"));
+}
+
+// `include-custom-instructions` controls whether a custom agent running as a
+// subagent reads the repository instruction files (copilot-instructions.md,
+// AGENTS.md, CLAUDE.md); it defaults to false. An agent the user selects with
+// `--agent` or `/agent` always reads them, so "exclude" is only partial and is
+// reported as a degradation.
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+// https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
+function includeCustomInstructions(
+	agent: AgentDefinition,
+): boolean | undefined {
+	if (agent.hostInstructions === "include") {
+		return true;
+	}
+
+	return agent.hostInstructions === "exclude" ? false : undefined;
 }
 
 function agentPath(agent: AgentDefinition): string {
@@ -667,6 +715,11 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		});
 	}
 
+	// include-custom-instructions: false applies when the agent runs as a
+	// subagent, which is what plugin agents are for; a user who selects the
+	// agent with --agent or /agent still gets repository instructions. Claude
+	// Code's omitClaudeMd behaves the same way, so neither is reported.
+
 	const supportedHooks = supportedCopilotCliHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
 
@@ -869,7 +922,7 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 	};
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",

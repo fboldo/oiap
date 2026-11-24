@@ -1,7 +1,13 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
+import type {
+	AgentDefinition,
+	PluginDefinition,
+	RenderedFile,
+	SkillAsset,
+	TargetBundle,
+} from "@oiap/core";
 import { exportOpenCode } from "./exporter.ts";
 
 describe("exportOpenCode", () => {
@@ -121,6 +127,72 @@ describe("exportOpenCode", () => {
 		expect(bundle.report.status).toBe("degraded");
 	});
 
+	test("maps invocation controls and degrades the ones OpenCode lacks", () => {
+		const plugin = {
+			...invocationPlugin,
+			skills: [
+				{ ...manualSkill, modelInvocable: false },
+				{ ...backgroundSkill, userInvocable: false },
+			],
+			agents: [{ ...isolatedAgent, hostInstructions: "exclude" }],
+		} satisfies PluginDefinition;
+		const bundle = exportOpenCode(plugin);
+		const degradations = bundle.report.degradedCapabilities;
+
+		expect(readText(bundle, ".opencode/skills/manual/SKILL.md")).toContain(
+			"disable-model-invocation: true",
+		);
+		expect(
+			readText(bundle, ".opencode/skills/background/SKILL.md"),
+		).not.toContain("disable-model-invocation");
+		expect(degradations).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "skills", target: "opencode" },
+				from: "userInvocable: false",
+			}),
+		);
+		expect(degradations).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "agents", target: "opencode" },
+				from: 'hostInstructions: "exclude"',
+			}),
+		);
+		expect(bundle.report.status).toBe("degraded");
+		expect(Object.keys(readJson<object>(bundle, "opencode.json"))).toEqual([
+			"$schema",
+		]);
+	});
+
+	test("reports ok when invocation controls are unset or mapped", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			skills: [{ ...manualSkill, modelInvocable: false }],
+			agents: [{ ...isolatedAgent, hostInstructions: "include" }],
+		});
+
+		expect(bundle.report.degradedCapabilities).toEqual([]);
+		expect(bundle.report.status).toBe("ok");
+	});
+
+	test("keeps targetMetadata over mapped skill keys", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			skills: [
+				{
+					...manualSkill,
+					modelInvocable: false,
+					targetMetadata: {
+						opencode: { "disable-model-invocation": false },
+					},
+				},
+			],
+		});
+
+		expect(readText(bundle, ".opencode/skills/manual/SKILL.md")).toContain(
+			"disable-model-invocation: false",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportOpenCode({
 			...bundleFilesPlugin,
@@ -136,6 +208,54 @@ describe("exportOpenCode", () => {
 		);
 	});
 });
+
+const manualSkill = {
+	id: "manual",
+	name: "manual",
+	description: "Run only when asked.",
+	instructions: { id: "manual-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const backgroundSkill = {
+	id: "background",
+	name: "background",
+	description: "Background knowledge.",
+	instructions: { id: "background-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const isolatedAgent = {
+	id: "isolated",
+	name: "isolated",
+	description: "Runs without project instructions.",
+	instructions: { id: "isolated-body", kind: "instruction" },
+} satisfies AgentDefinition;
+
+const invocationPlugin = {
+	manifest: {
+		id: "invocation",
+		name: "Invocation",
+		displayName: "Invocation Controls",
+		version: "1.0.0",
+		description: "Skill and agent invocation controls.",
+		keywords: ["review"],
+		author: { name: "Ada", email: "ada@example.com" },
+		repository: "https://github.com/example/invocation",
+		categories: [],
+		supportedTargets: ["opencode"],
+	},
+	instructions: [
+		{ id: "manual-body", purpose: "command", triggers: [], body: "Manual." },
+		{
+			id: "background-body",
+			purpose: "always_on",
+			triggers: [],
+			body: "Background.",
+		},
+		{ id: "isolated-body", purpose: "agent", triggers: [], body: "Isolated." },
+	],
+	skills: [manualSkill, backgroundSkill],
+	agents: [isolatedAgent],
+} satisfies PluginDefinition;
 
 const bundleFilesPlugin = {
 	manifest: {

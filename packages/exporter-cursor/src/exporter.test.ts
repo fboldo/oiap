@@ -148,6 +148,64 @@ describe("exportCursor", () => {
 		expect(degradations).not.toContain("read-only-agent");
 	});
 
+	test("maps manifest metadata and skill invocation", () => {
+		const bundle = exportCursor(hostFieldsPlugin);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".cursor-plugin/plugin.json",
+		);
+
+		expect(manifest.displayName).toBe("Bundle Files Pro");
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.author).toEqual({
+			name: "Docs Team",
+			email: "docs@example.com",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle");
+		expect(manifest.logo).toBe("assets/logo.svg");
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+
+		const skill = readText(bundle, "skills/review/SKILL.md");
+		expect(skill).toContain("disable-model-invocation: true");
+		expect(skill).not.toContain("user-invocable");
+		expect(readText(bundle, "agents/critic.md")).not.toContain("omit");
+	});
+
+	test("degrades model-only skills and agents without host instructions", () => {
+		const bundle = exportCursor(hostFieldsPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => `${degradation.capability.kind}:${degradation.from}`,
+		);
+
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("skills:model-only-skill");
+		expect(degradations).toContain("agents:agent-without-host-instructions");
+
+		const plain = exportCursor(bundleFilesPlugin);
+		const plainDegradations = plain.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+		expect(plainDegradations).not.toContain("model-only-skill");
+		expect(plainDegradations).not.toContain("agent-without-host-instructions");
+		expect(readText(plain, "skills/review/SKILL.md")).not.toContain(
+			"disable-model-invocation",
+		);
+	});
+
+	test("targetMetadata overrides mapped skill frontmatter", () => {
+		const bundle = exportCursor({
+			...hostFieldsPlugin,
+			skills: hostFieldsPlugin.skills.map((skill) => ({
+				...skill,
+				targetMetadata: { cursor: { "disable-model-invocation": false } },
+			})),
+		});
+
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"disable-model-invocation: false",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportCursor({
 			...bundleFilesPlugin,
@@ -206,6 +264,35 @@ const bundleFilesPlugin = {
 		},
 	],
 	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
+
+const hostFieldsPlugin = {
+	...bundleFilesPlugin,
+	manifest: {
+		...bundleFilesPlugin.manifest,
+		displayName: "Bundle Files Pro",
+		keywords: ["review", "docs"],
+		logo: "assets/logo.svg",
+		author: {
+			name: "Docs Team",
+			email: "docs@example.com",
+			url: "https://example.com",
+		},
+		repository: "https://github.com/example/bundle",
+	},
+	skills: bundleFilesPlugin.skills.map((skill) => ({
+		...skill,
+		modelInvocable: false,
+		userInvocable: false,
+	})),
+	agents: bundleFilesPlugin.agents.map((agent) => ({
+		...agent,
+		hostInstructions: "exclude" as const,
+	})),
+	resources: [
+		...bundleFilesPlugin.resources,
+		{ path: "assets/logo.svg", content: "<svg/>" },
+	],
 } satisfies PluginDefinition;
 
 const sampleCursorPlugin = {

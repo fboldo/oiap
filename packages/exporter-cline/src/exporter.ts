@@ -206,14 +206,26 @@ function renderClineFiles(ir: PluginIr): RenderedFile[] {
 
 function renderTargetManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
+	// Cline reads no manifest for a project bundle; this OIAP target manifest
+	// records publisher metadata with the key names of the Cline SDK's Agent
+	// Plugins plugin.json (author {name,email,url}, repository, keywords), which
+	// has no displayName or logo
+	// (sdk/packages/core/src/extensions/agent-plugin/loader.ts, MANIFEST_FIELDS).
 	const content = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
-		displayName: manifest.name,
+		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords:
+			manifest.keywords && manifest.keywords.length > 0
+				? manifest.keywords
+				: manifest.categories.length > 0
+					? manifest.categories
+					: undefined,
 		target: CLINE_TARGET,
 		rules: hasRuleOutput(ir) ? ".clinerules/" : undefined,
 		skills: hasSkillOutput(ir) ? ".cline/skills/" : undefined,
@@ -364,6 +376,10 @@ function renderAgents(
 	return agents.map((agent) => {
 		const instruction = findInstruction(instructions, agent.instructions.id);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
+		// `hostInstructions: "exclude"` needs no key: a configured agent's system
+		// prompt is its body with no .clinerules attached
+		// (sdk/packages/core/src/extensions/tools/team/subagent-prompts.ts,
+		// buildSubAgentSystemPrompt).
 		const frontmatter = omitUndefined({
 			name: agentSlug,
 			description: agent.description,
@@ -1038,6 +1054,8 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		});
 	}
 
+	degraded.push(...skillInvocationDegradations(ir.skills));
+
 	if (hasMcpGaps(ir.tools)) {
 		degraded.push({
 			capability: { kind: "mcp", target: CLINE_TARGET },
@@ -1055,6 +1073,41 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: ".oiap/policy.json evidence",
 			reason:
 				"Cline policy and approval controls are not equivalent to every OIAP policy field and require user review.",
+		});
+	}
+
+	return degraded;
+}
+
+/**
+ * Cline skills document only `name` and `description`, and every enabled skill
+ * is both model-activated and listed as a slash command
+ * (https://docs.cline.bot/features/skills). The SDK parser reads no other
+ * invocation key (sdk/packages/core/src/extensions/config/
+ * user-instruction-config-loader.ts, parseSkillConfigFromMarkdown).
+ */
+function skillInvocationDegradations(
+	skills: SkillAsset[],
+): CapabilityDegradation[] {
+	const degraded: CapabilityDegradation[] = [];
+	const userOnly = skills.filter((skill) => skill.modelInvocable === false);
+	const modelOnly = skills.filter((skill) => skill.userInvocable === false);
+
+	if (userOnly.length > 0) {
+		degraded.push({
+			capability: { kind: "skills", target: CLINE_TARGET },
+			from: "modelInvocable: false",
+			to: "skill Cline may activate on its own",
+			reason: `Cline has no setting that keeps the model from activating a skill, so ${userOnly.map((skill) => skill.id).join(", ")} can run without the user asking.`,
+		});
+	}
+
+	if (modelOnly.length > 0) {
+		degraded.push({
+			capability: { kind: "skills", target: CLINE_TARGET },
+			from: "userInvocable: false",
+			to: "skill listed as a slash command",
+			reason: `Cline lists every enabled skill as a slash command, so ${modelOnly.map((skill) => skill.id).join(", ")} stay visible to the user.`,
 		});
 	}
 

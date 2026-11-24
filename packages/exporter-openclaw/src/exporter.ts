@@ -12,6 +12,7 @@ import type {
 	PackageAssetRef,
 	PermissionPolicy,
 	PluginDefinition,
+	PluginFile,
 	PluginIr,
 	ProjectRule,
 	RenderedFile,
@@ -171,6 +172,7 @@ function renderOpenClawFiles(ir: PluginIr): RenderedFile[] {
 			"",
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		...renderPluginIcon(ir),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
 		resourceRoot: "",
@@ -202,6 +204,13 @@ function renderOpenClawFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+/**
+ * OpenClaw plugins are npm packages, so `keywords`, `author` and `repository`
+ * use the npm package.json keys; the OpenClaw-specific block stays under
+ * `openclaw`.
+ * https://docs.npmjs.com/cli/v11/configuring-npm/package-json
+ * https://github.com/openclaw/openclaw/blob/main/docs/plugins/manifest/package-json.md
+ */
 function renderPackageJson(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const packageJson = {
@@ -210,6 +219,18 @@ function renderPackageJson(ir: PluginIr): RenderedFile {
 		type: "module",
 		private: true,
 		description: manifest.description,
+		...omitUndefined({
+			keywords:
+				manifest.keywords && manifest.keywords.length > 0
+					? manifest.keywords
+					: undefined,
+			author: manifest.author
+				? omitUndefined({ ...manifest.author })
+				: undefined,
+			repository: manifest.repository
+				? { type: "git", url: manifest.repository }
+				: undefined,
+		}),
 		openclaw: {
 			extensions: ["./index.ts"],
 			compat: {
@@ -248,7 +269,10 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	].filter(Boolean);
 	const manifestContent = omitUndefined({
 		id: slug(manifest.id),
-		name: manifest.name,
+		// `name` is the human-readable plugin name; there is no separate
+		// displayName, keywords, author, repository or logo key.
+		// https://github.com/openclaw/openclaw/blob/main/docs/plugins/manifest.md
+		name: manifest.displayName ?? manifest.name,
 		description: manifest.description,
 		version: manifest.version,
 		configSchema: {
@@ -278,6 +302,46 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	);
 }
 
+/**
+ * OpenClaw has no manifest logo key: it reads a square PNG at the fixed path
+ * assets/icon.png, so a PNG logo is copied there.
+ * https://github.com/openclaw/openclaw/blob/main/docs/plugins/manifest/surfaces.md#plugin-icon
+ */
+const OPENCLAW_ICON_PATH = "assets/icon.png";
+
+function pluginIconSource(ir: PluginIr): PluginFile | undefined {
+	const logo = ir.manifest?.logo?.replace(/^\.\//, "");
+	const resources = ir.resources ?? [];
+
+	if (!logo || !/\.png$/i.test(logo)) {
+		return undefined;
+	}
+
+	const occupant = resources.find(
+		(resource) => resource.path === OPENCLAW_ICON_PATH,
+	);
+
+	if (occupant) {
+		return logo === OPENCLAW_ICON_PATH ? occupant : undefined;
+	}
+
+	return resources.find((resource) => resource.path === logo);
+}
+
+function renderPluginIcon(ir: PluginIr): RenderedFile[] {
+	const icon = pluginIconSource(ir);
+
+	if (!icon || icon.path === OPENCLAW_ICON_PATH) {
+		return [];
+	}
+
+	return renderPluginFiles(
+		[{ ...icon, path: OPENCLAW_ICON_PATH }],
+		"",
+		sourceRef(getManifest(ir).id, "icon"),
+	);
+}
+
 function renderEntrypoint(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const pluginId = slug(manifest.id);
@@ -301,7 +365,7 @@ function renderEntrypoint(ir: PluginIr): RenderedFile {
 		"",
 		"export default definePluginEntry({",
 		`	id: ${JSON.stringify(pluginId)},`,
-		`	name: ${JSON.stringify(manifest.name)},`,
+		`	name: ${JSON.stringify(manifest.displayName ?? manifest.name)},`,
 		`	description: ${JSON.stringify(manifest.description)},`,
 		"\tregister(api) {",
 		...renderToolRegistrationLines(),
@@ -441,6 +505,10 @@ function renderSkills(
 			{
 				name: skillSlug,
 				description: skill.description,
+				// https://github.com/openclaw/openclaw/blob/main/docs/tools/skills.md#optional-frontmatter-keys
+				"user-invocable": skill.userInvocable === false ? false : undefined,
+				"disable-model-invocation":
+					skill.modelInvocable === false ? true : undefined,
 				...targetMetadata(skill.targetMetadata),
 			},
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
@@ -566,6 +634,7 @@ function renderAgentMetadata(
 			model: agent.model,
 			tools: agent.tools,
 			access: agent.access,
+			hostInstructions: agent.hostInstructions,
 			...targetMetadata(agent.targetMetadata),
 			instructions: instruction
 				? instructionBody(instruction)
@@ -733,6 +802,19 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		),
 	];
 
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (isolatedAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: OPENCLAW_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-metadata",
+			reason: `OpenClaw plugins cannot ship agents, so the host-instruction isolation of ${isolatedAgents.length} agent(s) (${isolatedAgents.map((agent) => agent.id).join(", ")}) is recorded in .oiap metadata only.`,
+		});
+	}
+
 	if (ir.commands.length > 0) {
 		degradations.push({
 			capability: { kind: "commands", target: OPENCLAW_TARGET },
@@ -851,6 +933,14 @@ function collectIssues(
 			code: "missing-manifest",
 			message:
 				"Plugin manifest is missing; fallback OpenClaw metadata was generated.",
+		});
+	}
+
+	if (ir.manifest?.logo && !pluginIconSource(ir)) {
+		issues.push({
+			severity: "warning",
+			code: "unmapped-logo",
+			message: `OpenClaw reads only a PNG icon at ${OPENCLAW_ICON_PATH}; manifest logo ${ir.manifest.logo} is not a PNG in plugin resources (or another resource already uses that path), so no icon was written.`,
 		});
 	}
 

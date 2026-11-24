@@ -161,6 +161,98 @@ describe("exportAntigravity", () => {
 		expect(degradations).toContain("read-only-agent");
 	});
 
+	test("maps manifest metadata, logo and skill invocation", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Plugin",
+				keywords: ["review", "docs"],
+				categories: ["ignored-when-keywords-set"],
+				logo: "./assets/logo.svg",
+				author: { name: "Acme", url: "https://acme.example" },
+				repository: "https://github.com/acme/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+			skills: [
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					modelInvocable: false,
+				})),
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					id: "hidden",
+					name: "hidden",
+					userInvocable: false,
+					targetMetadata: {
+						[target]: { "disable-model-invocation": false },
+					},
+				})),
+			],
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				hostInstructions: "exclude" as const,
+			})),
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".antigravity-plugin/plugin.json",
+		);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => [degradation.capability.kind, degradation.from],
+		);
+
+		expect(manifest).toMatchObject({
+			displayName: "Bundle Files Plugin",
+			logo: "assets/logo.svg",
+			author: { name: "Acme", url: "https://acme.example" },
+			repository: "https://github.com/acme/bundle-files",
+			keywords: ["review", "docs"],
+		});
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"disable-model-invocation: true",
+		);
+		expect(readText(bundle, "skills/hidden/SKILL.md")).toContain(
+			"disable-model-invocation: false",
+		);
+		expect(degradations).toContainEqual(["skills", "model-only-skill"]);
+		expect(degradations).not.toContainEqual(["skills", "user-only-skill"]);
+		expect(degradations).toContainEqual([
+			"agents",
+			"agent-without-host-instructions",
+		]);
+		expect(
+			bundle.report.issues.some(
+				(issue) => issue.code === "invalid-antigravity-plugin-manifest",
+			),
+		).toBe(false);
+	});
+
+	test("omits a logo that is not a bundled image", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			manifest: { ...bundleFilesPlugin.manifest, logo: "assets/missing.png" },
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".antigravity-plugin/plugin.json",
+		);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(manifest.logo).toBeUndefined();
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"invalid-logo",
+		);
+		expect(degradations).not.toContain("model-only-skill");
+		expect(degradations).not.toContain("agent-without-host-instructions");
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportAntigravity({
 			...bundleFilesPlugin,

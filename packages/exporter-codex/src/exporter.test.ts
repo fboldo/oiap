@@ -155,6 +155,114 @@ describe("exportCodex", () => {
 		expect("dropped" in parsed).toBe(false);
 	});
 
+	test("maps manifest metadata and skill invocation policy", () => {
+		const bundle = exportCodex(hostFieldsPlugin);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".codex-plugin/plugin.json",
+		);
+
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.author).toEqual({
+			name: "Docs Team",
+			email: "docs@example.com",
+			url: "https://example.com",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle");
+		expect(manifest.displayName).toBeUndefined();
+		expect(manifest.logo).toBeUndefined();
+		expect(manifest.interface).toEqual({
+			displayName: "Bundle Files Pro",
+			shortDescription: "Skill files, resources and path tokens.",
+			developerName: "Docs Team",
+			websiteURL: "https://example.com/bundle",
+			logo: "./assets/logo.svg",
+		});
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+		expect(readText(bundle, "skills/review/agents/openai.yaml")).toBe(
+			"policy:\n  allow_implicit_invocation: false\n",
+		);
+		expect(readText(bundle, "skills/review/SKILL.md")).not.toContain(
+			"invocation",
+		);
+	});
+
+	test("degrades model-only skills and agents without host instructions", () => {
+		const bundle = exportCodex(hostFieldsPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => `${degradation.capability.kind}:${degradation.from}`,
+		);
+
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("skills:model-only-skill");
+		expect(degradations).toContain("agents:agent-without-host-instructions");
+
+		const plain = exportCodex(bundleFilesPlugin);
+		const plainDegradations = plain.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+		expect(plainDegradations).not.toContain("model-only-skill");
+		expect(plainDegradations).not.toContain("agent-without-host-instructions");
+		expect(
+			plain.files.some((file) => file.path.endsWith("agents/openai.yaml")),
+		).toBe(false);
+	});
+
+	test("keeps hyphens in agent names", () => {
+		const bundle = exportCodex({
+			...bundleFilesPlugin,
+			agents: [
+				{
+					id: "EGM-Style",
+					name: "egm-style",
+					description: "Style agent.",
+					instructions: { id: "critic-body", kind: "instruction" },
+				},
+				{
+					id: "snake_case agent",
+					name: "snake",
+					description: "Snake agent.",
+					instructions: { id: "critic-body", kind: "instruction" },
+				},
+			],
+		});
+
+		expect(
+			Bun.TOML.parse(readText(bundle, ".codex/agents/egm-style.toml")),
+		).toMatchObject({ name: "egm-style" });
+		expect(
+			Bun.TOML.parse(readText(bundle, ".codex/agents/snake-case-agent.toml")),
+		).toMatchObject({ name: "snake_case-agent" });
+	});
+
+	test("merges the user-only policy into a skill's own openai.yaml", () => {
+		const bundle = exportCodex({
+			...bundleFilesPlugin,
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				modelInvocable: false,
+				files: [
+					...(skill.files ?? []),
+					{
+						path: "agents/openai.yaml",
+						content: 'interface:\n  display_name: "Review"\n',
+					},
+				],
+			})),
+		});
+		const policyFiles = bundle.files.filter((file) =>
+			file.path.endsWith("agents/openai.yaml"),
+		);
+
+		expect(policyFiles).toHaveLength(1);
+		expect(String(policyFiles[0]?.content)).toBe(
+			'interface:\n  display_name: "Review"\npolicy:\n  allow_implicit_invocation: false\n',
+		);
+		expect(bundle.report.issues.map((issue) => issue.code)).not.toContain(
+			"duplicate-bundle-file",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportCodex({
 			...bundleFilesPlugin,
@@ -213,6 +321,36 @@ const bundleFilesPlugin = {
 		},
 	],
 	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
+
+const hostFieldsPlugin = {
+	...bundleFilesPlugin,
+	manifest: {
+		...bundleFilesPlugin.manifest,
+		displayName: "Bundle Files Pro",
+		keywords: ["review", "docs"],
+		logo: "assets/logo.svg",
+		homepage: "https://example.com/bundle",
+		author: {
+			name: "Docs Team",
+			email: "docs@example.com",
+			url: "https://example.com",
+		},
+		repository: "https://github.com/example/bundle",
+	},
+	skills: bundleFilesPlugin.skills.map((skill) => ({
+		...skill,
+		modelInvocable: false,
+		userInvocable: false,
+	})),
+	agents: bundleFilesPlugin.agents.map((agent) => ({
+		...agent,
+		hostInstructions: "exclude" as const,
+	})),
+	resources: [
+		...bundleFilesPlugin.resources,
+		{ path: "assets/logo.svg", content: "<svg/>" },
+	],
 } satisfies PluginDefinition;
 
 const sampleCodexPlugin = {

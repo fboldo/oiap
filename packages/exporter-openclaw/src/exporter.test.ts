@@ -120,6 +120,103 @@ describe("exportOpenClaw", () => {
 		expect(degradations).toContain("read-only-agent");
 	});
 
+	test("maps manifest metadata, icon and skill invocation", () => {
+		const icon = new Uint8Array([137, 80, 78, 71]);
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Plugin",
+				keywords: ["review"],
+				logo: "branding/logo.png",
+				author: { name: "Acme", email: "dev@acme.example" },
+				repository: "https://github.com/acme/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "branding/logo.png", content: icon },
+			],
+			skills: [
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					modelInvocable: false,
+				})),
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					id: "hidden",
+					name: "hidden",
+					userInvocable: false,
+					targetMetadata: { openclaw: { "user-invocable": true } },
+				})),
+			],
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				hostInstructions: "exclude" as const,
+			})),
+		});
+		const packageJson = readJson(bundle, "package.json");
+		const manifest = readJson(bundle, "openclaw.plugin.json");
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => [degradation.capability.kind, degradation.from],
+		);
+
+		expect(packageJson).toMatchObject({
+			keywords: ["review"],
+			author: { name: "Acme", email: "dev@acme.example" },
+			repository: {
+				type: "git",
+				url: "https://github.com/acme/bundle-files",
+			},
+		});
+		expect(manifest.name).toBe("Bundle Files Plugin");
+		expect(manifest).not.toHaveProperty("logo");
+		expect(readText(bundle, "index.ts")).toContain(
+			'name: "Bundle Files Plugin"',
+		);
+		expect(findFile(bundle, "assets/icon.png").content).toEqual(icon);
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"disable-model-invocation: true",
+		);
+		expect(readText(bundle, "skills/review/SKILL.md")).not.toContain(
+			"user-invocable",
+		);
+		expect(readText(bundle, "skills/hidden/SKILL.md")).toContain(
+			"user-invocable: true",
+		);
+		expect(readJson(bundle, ".oiap/agents/critic.json").hostInstructions).toBe(
+			"exclude",
+		);
+		expect(degradations).toContainEqual([
+			"agents",
+			"agent-without-host-instructions",
+		]);
+		expect(degradations).not.toContainEqual(["skills", "user-only-skill"]);
+		expect(degradations).not.toContainEqual(["skills", "model-only-skill"]);
+	});
+
+	test("writes user-invocable: false and warns about a non-PNG logo", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			manifest: { ...bundleFilesPlugin.manifest, logo: "standards/style.md" },
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				userInvocable: false,
+			})),
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"user-invocable: false",
+		);
+		expect(paths).not.toContain("assets/icon.png");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"unmapped-logo",
+		);
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportOpenClaw({
 			...bundleFilesPlugin,

@@ -117,6 +117,60 @@ describe("exportGeminiCli", () => {
 		expect(degradations).not.toContain("read-only-agent");
 	});
 
+	test("degrades invocation controls and host-instruction isolation", () => {
+		const skill = first(bundleFilesPlugin.skills, "skill");
+		const agent = first(bundleFilesPlugin.agents, "agent");
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Plugin",
+				keywords: ["review"],
+				logo: "assets/logo.svg",
+				author: { name: "Acme" },
+				repository: "https://github.com/acme/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+			skills: [
+				{ ...skill, modelInvocable: false },
+				{ ...skill, id: "hidden", name: "hidden", userInvocable: false },
+			],
+			agents: [{ ...agent, hostInstructions: "exclude" }],
+		});
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => [degradation.capability.kind, degradation.from],
+		);
+		const manifest = readJson(bundle, "gemini-extension.json");
+
+		expect(degradations).toContainEqual(["skills", "user-only-skill"]);
+		expect(degradations).toContainEqual(["skills", "model-only-skill"]);
+		expect(degradations).toContainEqual([
+			"agents",
+			"agent-without-host-instructions",
+		]);
+		expect(Object.keys(manifest).sort()).toEqual([
+			"description",
+			"name",
+			"version",
+		]);
+		expect(readText(bundle, "skills/review/SKILL.md")).not.toContain(
+			"disable-model-invocation",
+		);
+	});
+
+	test("does not degrade invocation controls left at their defaults", () => {
+		const degradations = exportGeminiCli(
+			bundleFilesPlugin,
+		).report.degradedCapabilities.map((degradation) => degradation.from);
+
+		expect(degradations).not.toContain("user-only-skill");
+		expect(degradations).not.toContain("model-only-skill");
+		expect(degradations).not.toContain("agent-without-host-instructions");
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportGeminiCli({
 			...bundleFilesPlugin,

@@ -248,19 +248,27 @@ function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+/**
+ * `displayName`, `logo`, `author` (string or {name, email, url}),
+ * `repository` and `keywords` are documented plugin.json keys.
+ * https://antigravity.google/docs/build-plugins.md
+ * https://antigravity.google/schemas/v1/plugin.json
+ */
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
+	const keywords = manifest.keywords ?? manifest.categories;
 	const content = omitUndefined({
 		$schema: ANTIGRAVITY_MANIFEST_SCHEMA,
 		name: pluginName(ir),
-		displayName: manifest.name,
+		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
 		version: manifest.version,
+		logo: manifestLogo(ir),
 		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
 		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: keywords.length > 0 ? keywords : undefined,
 	});
 
 	return jsonFile(
@@ -268,6 +276,28 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		content,
 		sourceRef(manifest.id, "manifest"),
 	);
+}
+
+/**
+ * The schema accepts a relative path to a .png, .svg, .jpg, .jpeg or .webp
+ * file inside the plugin. Resources are written at the plugin root, so the
+ * resource path is the manifest path.
+ */
+const ANTIGRAVITY_LOGO_PATH =
+	/^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\/)\S.*\.(png|svg|jpe?g|webp)$/i;
+
+function manifestLogo(ir: PluginIr): string | undefined {
+	const logo = ir.manifest?.logo?.replace(/^\.\//, "");
+
+	if (
+		!logo ||
+		!ANTIGRAVITY_LOGO_PATH.test(logo) ||
+		!(ir.resources ?? []).some((resource) => resource.path === logo)
+	) {
+		return undefined;
+	}
+
+	return logo;
 }
 
 function pluginName(ir: PluginIr): string {
@@ -348,6 +378,11 @@ function renderSkills(
 			{
 				name: skillSlug,
 				description: skill.description,
+				// `disable-model-invocation: true` limits the skill to /<name>.
+				// No key hides a skill from the user (see collectDegradedCapabilities).
+				// https://antigravity.google/docs/build-plugins.md
+				"disable-model-invocation":
+					skill.modelInvocable === false ? true : undefined,
 				...targetMetadata(skill.targetMetadata),
 			},
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
@@ -839,6 +874,36 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		),
 	];
 
+	const modelOnlySkills = ir.skills.filter(
+		(skill) => skill.userInvocable === false,
+	);
+
+	if (modelOnlySkills.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: ANTIGRAVITY_TARGET },
+			from: "model-only-skill",
+			to: "model-and-user-skill",
+			reason: `Antigravity exposes every skill as /<name> and documents no key to hide one, so ${modelOnlySkills.length} model-only skill(s) (${modelOnlySkills.map((skill) => skill.id).join(", ")}) are also visible to the user.`,
+		});
+	}
+
+	// Agent frontmatter (name, description, tools, mainAgent, subagent, model,
+	// commandExecutionPolicy, mcpServers, skills/plugins) has no switch for the
+	// workspace rules and AGENTS.md context.
+	// https://antigravity.google/docs/subagents.md
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (isolatedAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: ANTIGRAVITY_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `Antigravity agent frontmatter has no key to leave out workspace and user rules, so ${isolatedAgents.length} agent(s) (${isolatedAgents.map((agent) => agent.id).join(", ")}) may still see project and user instructions.`,
+		});
+	}
+
 	if (hasCommandOutput(ir)) {
 		degradations.push({
 			capability: { kind: "commands", target: ANTIGRAVITY_TARGET },
@@ -949,6 +1014,14 @@ function collectIssues(
 			code: "missing-manifest",
 			message:
 				"Plugin manifest is missing; fallback Antigravity metadata was generated.",
+		});
+	}
+
+	if (ir.manifest?.logo && !manifestLogo(ir)) {
+		issues.push({
+			severity: "warning",
+			code: "invalid-logo",
+			message: `Manifest logo ${ir.manifest.logo} is not a .png, .svg, .jpg, .jpeg or .webp file in plugin resources, so plugin.json has no logo.`,
 		});
 	}
 

@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	ProjectRule,
 	RenderedFile,
 	RuntimeModule,
@@ -182,6 +183,12 @@ function renderVsCodeCopilotFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// Copilot-format plugin.json (no `$schema`) uses the Copilot CLI plugin
+// manifest fields: author ({name, email?, url?}), repository and keywords are
+// documented; there is no display name or logo field, so `displayName` and
+// `logo` are not emitted (the logo file still ships as a plugin resource).
+// https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const hasSkills = hasSkillOutput(ir);
@@ -193,9 +200,11 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		name: slug(manifest.id, "oiap-plugin"),
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
 		category: manifest.categories[0],
 		skills: hasSkills ? "skills/" : undefined,
 		commands: hasCommands ? "commands/" : undefined,
@@ -205,6 +214,16 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	});
 
 	return jsonFile("plugin.json", content, sourceRef(manifest.id, "manifest"));
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
 }
 
 function renderSkills(
@@ -222,6 +241,7 @@ function renderSkills(
 			{
 				name: skillSlug,
 				description: skill.description,
+				...skillInvocationFrontmatter(skill),
 				...targetMetadata(skill.targetMetadata),
 			},
 			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
@@ -239,6 +259,20 @@ function renderSkills(
 				sourceRef(skill.id, "skill-file"),
 			),
 		];
+	});
+}
+
+// SKILL.md `user-invocable` (default true: listed in the / menu) and
+// `disable-model-invocation` (default false); only non-default values are
+// written.
+// https://code.visualstudio.com/docs/copilot/customization/agent-skills
+function skillInvocationFrontmatter(
+	skill: SkillAsset,
+): Record<string, unknown> {
+	return omitUndefined({
+		"user-invocable": skill.userInvocable === false ? false : undefined,
+		"disable-model-invocation":
+			skill.modelInvocable === false ? true : undefined,
 	});
 }
 
@@ -626,6 +660,23 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		});
 	}
 
+	// `include-custom-instructions` is a Copilot-schema field that VS Code does
+	// not forward when it converts agent files (plugin agents included), and the
+	// Local schema has no equivalent, so "exclude" is not emitted.
+	// https://code.visualstudio.com/docs/agents/reference/custom-agent-file-reference
+	const excludedInstructionAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (excludedInstructionAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: VSCODE_COPILOT_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `${excludedInstructionAgents.length} agent(s) exclude host instructions, but VS Code custom agents have no documented control for it (include-custom-instructions is not forwarded), so the workspace custom instructions still load for them.`,
+		});
+	}
+
 	const supportedHooks = supportedVsCodeHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
 
@@ -792,7 +843,7 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 	};
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",

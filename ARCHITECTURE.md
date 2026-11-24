@@ -255,14 +255,23 @@ export interface PluginManifest {
   name: string;
   version: string;
   description: string;
+  displayName?: string;
   homepage?: string;
   license?: string;
+  keywords?: string[];
+  logo?: string; // path of a file in plugin resources
+  author?: { name: string; email?: string; url?: string };
+  repository?: string;
   categories: string[];
   requiredCapabilities?: HostCapability[];
   optionalCapabilities?: HostCapability[];
   supportedTargets: TargetId[];
 }
 ```
+
+Exporters write the listing fields (`displayName`, `keywords`, `logo`,
+`author`, `repository`) into each host manifest that has a matching key, and
+`version` into all of them, so every host stays in lockstep.
 
 The manifest should describe what the plugin needs in semantic terms, such as
 workspace read access, command execution, file writes, MCP tools, hooks, rules,
@@ -442,9 +451,15 @@ export interface SkillAsset {
   instructions: InstructionModuleRef;
   assets?: PackageAssetRef[];
   files?: PluginFile[];
+  modelInvocable?: boolean;
+  userInvocable?: boolean;
   targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;
 }
 ```
+
+`modelInvocable: false` makes a skill user-only (host
+`disable-model-invocation: true`); `userInvocable: false` hides it from the
+user's slash commands. Hosts without a control report a degradation.
 
 Targets without native skills can still receive the skill content as rules,
 instructions, or generated documentation with a degradation entry.
@@ -532,7 +547,10 @@ Agents themselves are `AgentDefinition`s. `access: "read-only"` asks for an
 agent that cannot modify the workspace. Exporters map it to the host's own
 control (a Claude tool allowlist, a Cursor read-only flag, an OpenCode
 permission map) and report a `read-only-agent` degradation where the host has
-none. `tools` remains a pass-through list of host tool names and takes
+none. `hostInstructions: "exclude"` starts the agent without the host's project
+and user instruction files where the host has a control (Claude Code
+`omitClaudeMd`, Copilot CLI `include-custom-instructions: false`) and is
+reported as a degradation elsewhere. `tools` remains a pass-through list of host tool names and takes
 precedence over `access` on hosts that accept it. `targetMetadata` for the
 target is merged last, so it can override any generated field, including the
 read-only mapping; use it only for fields OIAP does not model.
@@ -545,6 +563,7 @@ export interface AgentDefinition {
   instructions: InstructionModuleRef;
   tools?: ToolRef[];
   access?: "read-only" | "read-write";
+  hostInstructions?: "include" | "exclude";
   model?: string;
   delegation?: DelegationStrategyRef;
   targetMetadata?: Partial<Record<TargetId, Record<string, unknown>>>;

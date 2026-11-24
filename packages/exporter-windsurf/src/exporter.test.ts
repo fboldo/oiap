@@ -1,7 +1,12 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import type { PluginDefinition, TargetBundle } from "@oiap/core";
+import type {
+	AgentDefinition,
+	PluginDefinition,
+	SkillAsset,
+	TargetBundle,
+} from "@oiap/core";
 import { exportWindsurf } from "./exporter.ts";
 import { windsurfProfile } from "./profile.ts";
 
@@ -227,6 +232,90 @@ describe("exportWindsurf", () => {
 		);
 	});
 
+	test("maps skill invocation controls to triggers", () => {
+		const bundle = exportWindsurf({
+			...invocationPlugin,
+			skills: [
+				{ ...manualSkill, modelInvocable: false },
+				{ ...backgroundSkill, userInvocable: false },
+			],
+		});
+
+		expect(readText(bundle, ".windsurf/skills/manual/SKILL.md")).toContain(
+			'triggers: ["user"]',
+		);
+		expect(readText(bundle, ".windsurf/skills/background/SKILL.md")).toContain(
+			'triggers: ["model"]',
+		);
+		expect(
+			readText(
+				exportWindsurf(invocationPlugin),
+				".windsurf/skills/manual/SKILL.md",
+			),
+		).not.toContain("triggers");
+		expect(
+			bundle.report.degradedCapabilities.map(
+				(degradation) => degradation.capability.kind,
+			),
+		).not.toContain("skills");
+	});
+
+	test("keeps targetMetadata over mapped triggers", () => {
+		const bundle = exportWindsurf({
+			...invocationPlugin,
+			skills: [
+				{
+					...manualSkill,
+					modelInvocable: false,
+					targetMetadata: { windsurf: { triggers: ["user", "model"] } },
+				},
+			],
+		});
+
+		expect(readText(bundle, ".windsurf/skills/manual/SKILL.md")).toContain(
+			'triggers: ["user","model"]',
+		);
+	});
+
+	test("degrades agents that exclude host instructions", () => {
+		const excluded = exportWindsurf({
+			...invocationPlugin,
+			agents: [{ ...isolatedAgent, hostInstructions: "exclude" }],
+		});
+		const included = exportWindsurf({
+			...invocationPlugin,
+			agents: [{ ...isolatedAgent, hostInstructions: "include" }],
+		});
+		const fromValues = (bundle: TargetBundle) =>
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from);
+
+		expect(excluded.report.degradedCapabilities).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "agents", target },
+				from: 'hostInstructions: "exclude"',
+			}),
+		);
+		expect(excluded.report.status).toBe("degraded");
+		expect(fromValues(included)).not.toContain('hostInstructions: "exclude"');
+	});
+
+	test("records publisher metadata in the target manifest", () => {
+		const bundle = exportWindsurf(invocationPlugin);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".oiap/windsurf-target.json",
+		);
+
+		expect(manifest.displayName).toBe("Invocation Controls");
+		expect(manifest.keywords).toEqual(["review"]);
+		expect(manifest.author).toEqual({ name: "Ada", email: "ada@example.com" });
+		expect(manifest.repository).toBe("https://github.com/example/invocation");
+		expect(manifest.logo).toBe(".windsurf/invocation/assets/logo.svg");
+		expect(readText(bundle, ".windsurf/invocation/assets/logo.svg")).toBe(
+			"<svg/>",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportWindsurf({
 			...bundleFilesPlugin,
@@ -252,6 +341,56 @@ describe("exportWindsurf", () => {
 		});
 	});
 });
+
+const manualSkill = {
+	id: "manual",
+	name: "manual",
+	description: "Run only when asked.",
+	instructions: { id: "manual-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const backgroundSkill = {
+	id: "background",
+	name: "background",
+	description: "Background knowledge.",
+	instructions: { id: "background-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const isolatedAgent = {
+	id: "isolated",
+	name: "isolated",
+	description: "Runs without project instructions.",
+	instructions: { id: "isolated-body", kind: "instruction" },
+} satisfies AgentDefinition;
+
+const invocationPlugin = {
+	manifest: {
+		id: "invocation",
+		name: "Invocation",
+		displayName: "Invocation Controls",
+		version: "1.0.0",
+		description: "Skill and agent invocation controls.",
+		keywords: ["review"],
+		logo: "assets/logo.svg",
+		author: { name: "Ada", email: "ada@example.com" },
+		repository: "https://github.com/example/invocation",
+		categories: ["testing"],
+		supportedTargets: [target],
+	},
+	instructions: [
+		{ id: "manual-body", purpose: "command", triggers: [], body: "Manual." },
+		{
+			id: "background-body",
+			purpose: "always_on",
+			triggers: [],
+			body: "Background.",
+		},
+		{ id: "isolated-body", purpose: "agent", triggers: [], body: "Isolated." },
+	],
+	skills: [manualSkill, backgroundSkill],
+	agents: [isolatedAgent],
+	resources: [{ path: "assets/logo.svg", content: "<svg/>" }],
+} satisfies PluginDefinition;
 
 const bundleFilesPlugin = {
 	manifest: {

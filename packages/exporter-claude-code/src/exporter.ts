@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	RenderedFile,
 	RuntimeModule,
 	SkillAsset,
@@ -185,16 +186,25 @@ function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// plugin.json documents displayName, keywords, author ({name, email?, url?}),
+// repository (string), homepage and license. There is no `logo` key; `icon`
+// is the path of an image inside the plugin, used by Anthropic's directory
+// listing (Claude Code itself does not read it).
+// https://code.claude.com/docs/en/plugins-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const content = omitUndefined({
 		$schema: "https://json.schemastore.org/claude-code-plugin-manifest.json",
 		name: slug(manifest.id),
+		displayName: manifest.displayName,
 		version: manifest.version,
 		description: manifest.description,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
+		icon: manifest.logo ? `./${resourcePath(manifest.logo)}` : undefined,
 	});
 
 	return jsonFile(
@@ -202,6 +212,21 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		content,
 		sourceRef(manifest.id, "manifest"),
 	);
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
+}
+
+// Resources are written at the bundle root.
+function resourcePath(path: string): string {
+	return path.replace(/^(\.\/)+/, "");
 }
 
 function renderSkill(
@@ -216,6 +241,7 @@ function renderSkill(
 		{
 			name: skill.name,
 			description: skill.description,
+			...skillInvocationFrontmatter(skill),
 			...targetMetadata(skill.targetMetadata),
 		},
 		body,
@@ -226,6 +252,19 @@ function renderSkill(
 		content,
 		sourceRef(skill.id, "skill"),
 	);
+}
+
+// SKILL.md `disable-model-invocation` (default false) and `user-invocable`
+// (default true); only non-default values are written.
+// https://code.claude.com/docs/en/skills
+function skillInvocationFrontmatter(
+	skill: SkillAsset,
+): Record<string, unknown> {
+	return omitUndefined({
+		"disable-model-invocation":
+			skill.modelInvocable === false ? true : undefined,
+		"user-invocable": skill.userInvocable === false ? false : undefined,
+	});
 }
 
 function renderCommand(
@@ -263,6 +302,11 @@ function renderCommand(
 	);
 }
 
+// `omitClaudeMd: true` starts the subagent without the user, project and local
+// CLAUDE.md files (managed policy files still load); plugin agents support it.
+// It is ignored when the agent runs as the main session agent via --agent.
+// https://code.claude.com/docs/en/sub-agents#supported-frontmatter-fields
+// https://code.claude.com/docs/en/plugins/components
 function renderAgent(
 	agent: AgentDefinition,
 	instructions: InstructionModule[],
@@ -277,6 +321,7 @@ function renderAgent(
 			description: agent.description,
 			model: agent.model,
 			tools: agentTools(agent),
+			omitClaudeMd: agent.hostInstructions === "exclude" ? true : undefined,
 			...targetMetadata(agent.targetMetadata),
 		},
 		body,
@@ -681,7 +726,7 @@ function validateClaudeCodeBundle(bundle: TargetBundle): ValidationIssue[] {
 	return issues;
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",

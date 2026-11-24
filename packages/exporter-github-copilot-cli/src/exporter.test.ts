@@ -221,6 +221,114 @@ describe("exportGitHubCopilotCli", () => {
 		expect(bundle.report.status).toBe("degraded");
 	});
 
+	test("maps manifest author, repository and keywords; skips displayName and logo", () => {
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Display",
+				keywords: ["review", "docs"],
+				categories: ["productivity"],
+				logo: "assets/logo.svg",
+				author: { name: "Ada", url: "https://example.com/ada" },
+				repository: "https://github.com/example/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+		});
+		const manifest = readJson<Record<string, unknown>>(bundle, "plugin.json");
+
+		expect(manifest.author).toEqual({
+			name: "Ada",
+			url: "https://example.com/ada",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle-files");
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.category).toBe("productivity");
+		expect(manifest).not.toHaveProperty("displayName");
+		expect(manifest).not.toHaveProperty("logo");
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+	});
+
+	test("maps skill invocation flags with targetMetadata winning", () => {
+		const skill = first<(typeof bundleFilesPlugin.skills)[number]>(
+			bundleFilesPlugin.skills,
+			"skill",
+		);
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			agents: [],
+			skills: [
+				{ ...skill, id: "user-only", modelInvocable: false },
+				{ ...skill, id: "model-only", userInvocable: false, files: [] },
+				{
+					...skill,
+					id: "overridden",
+					userInvocable: false,
+					modelInvocable: true,
+					files: [],
+					targetMetadata: { [target]: { "user-invocable": true } },
+				},
+			],
+		});
+
+		const userOnly = readText(bundle, "skills/user-only/SKILL.md");
+		expect(userOnly).toContain("disable-model-invocation: true");
+		expect(userOnly).not.toContain("user-invocable");
+
+		const modelOnly = readText(bundle, "skills/model-only/SKILL.md");
+		expect(modelOnly).toContain("user-invocable: false");
+		expect(modelOnly).not.toContain("disable-model-invocation");
+
+		const overridden = readText(bundle, "skills/overridden/SKILL.md");
+		expect(overridden).toContain("user-invocable: true");
+		expect(overridden).not.toContain("disable-model-invocation");
+		expect(
+			bundle.report.degradedCapabilities.map(
+				(degradation) => degradation.capability.kind,
+			),
+		).not.toContain("skills");
+	});
+
+	test("maps agent hostInstructions", () => {
+		const agent = { ...bundleFilesAgent, targetMetadata: undefined };
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			instructions: bundleFilesPlugin.instructions.map((instruction) => ({
+				...instruction,
+				body: "No tokens.",
+			})),
+			agents: [
+				{ ...agent, id: "isolated", hostInstructions: "exclude" },
+				{ ...agent, id: "repo-aware", hostInstructions: "include" },
+				{ ...agent, id: "plain" },
+			],
+		});
+		const excluded = readText(bundle, "agents/isolated.agent.md");
+		expect(excluded).toContain("include-custom-instructions: false");
+		const included = readText(bundle, "agents/repo-aware.agent.md");
+		expect(included).toContain("include-custom-instructions: true");
+		expect(readText(bundle, "agents/plain.agent.md")).not.toContain(
+			"include-custom-instructions",
+		);
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
+	test("does not degrade agents that include host instructions", () => {
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			agents: [{ ...bundleFilesAgent, hostInstructions: "include" }],
+		});
+
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
 	test("keeps explicit agent tools over access", () => {
 		const bundle = exportGitHubCopilotCli({
 			...bundleFilesPlugin,
