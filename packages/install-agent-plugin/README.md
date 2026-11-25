@@ -4,9 +4,12 @@ Executable CLI for discovering OIAP plugin declarations in a repository.
 
 ```sh
 npx install-agent-plugin owner/repo --list
-npx install-agent-plugin owner/repo --plugin review-guard --agent claude-code
+npx install-agent-plugin owner/repo --agent claude-code
 npx install-agent-plugin owner/repo --plugin review-guard --agent claude-code --global
 ```
+
+`--plugin` is needed only when the repository exports more than one plugin;
+`--list` shows them.
 
 The CLI discovers `definePlugin(...)` calls directly from TypeScript and
 JavaScript source files through `@oiap/core`; it does not require a separate JSON
