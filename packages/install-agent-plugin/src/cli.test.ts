@@ -158,7 +158,8 @@ describe("runInstallAgentPlugin", () => {
 			const result = await runInstallAgentPlugin({
 				kind: "install",
 				source: sourceDir,
-				pluginSelector: "dependency-plugin",
+				// The source exports one plugin, so no --plugin is needed.
+				pluginSelector: undefined,
 				agent: "codex",
 				outDir,
 				scope: "local",

@@ -273,9 +273,21 @@ export async function runInstallAgentPlugin(
 			return { kind: "list", source: sourceSummary(source), declarations };
 		}
 
-		if (!command.pluginSelector) {
+		// A repository with one exported plugin needs no --plugin.
+		const exported = declarations.filter(
+			(declaration) => declaration.exportKind !== "unexported",
+		);
+		const pluginSelector =
+			command.pluginSelector ??
+			(exported[0] && exported.length === 1
+				? (exported[0].manifest?.id ?? formatDeclarationSelector(exported[0]))
+				: undefined);
+
+		if (!pluginSelector) {
 			throw new InstallAgentPluginError(
-				"Missing --plugin. Use --list to inspect installable plugin declarations.",
+				exported.length === 0
+					? "No installable plugin declarations found."
+					: "This repository has several plugins; choose one with --plugin. Use --list to see them.",
 			);
 		}
 
@@ -291,10 +303,7 @@ export async function runInstallAgentPlugin(
 			);
 		}
 
-		const declaration = selectPluginDeclaration(
-			declarations,
-			command.pluginSelector,
-		);
+		const declaration = selectPluginDeclaration(declarations, pluginSelector);
 
 		if (command.dryRun) {
 			return {
@@ -821,11 +830,12 @@ export function isEntrypoint(
 
 const helpText = `Usage:
   install-agent-plugin <owner/repo|path> --list [--ref <ref>] [--json]
-	install-agent-plugin <owner/repo|path> --plugin <name> --agent <target> [-g] [--out <dir>] [--ref <ref>] [--overwrite] [--json]
+	install-agent-plugin <owner/repo|path> --agent <target> [--plugin <name>] [-g] [--out <dir>] [--ref <ref>] [--overwrite] [--json]
 
 Options:
   -l, --list              List OIAP definePlugin declarations without loading them.
   -p, --plugin <name>     Plugin manifest id/name, export name, or path#export selector.
+                          Optional when the repository exports one plugin.
   -a, --agent <target>    Target agent exporter. Alias: --target.
 	-g, --global            Install to the target's user-level path. Defaults to the local/project path.
 	--local, --project      Install to the target's local/project path.
