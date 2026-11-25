@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import type { BuildSummary, TargetBuildResult } from "./build.ts";
 import { buildPluginFile } from "./build.ts";
 import { exporterRegistry, registeredTargets } from "./registry.ts";
@@ -479,13 +480,29 @@ function displayPath(path: string): string {
 }
 
 function isCliEntrypoint(): boolean {
-	const entrypoint = process.argv[1];
+	return isEntrypoint(process.argv[1], import.meta.url);
+}
 
-	if (!entrypoint) {
+/**
+ * Whether `argvPath` (process.argv[1]) is the module at `moduleUrl`. npm runs
+ * bins through a symlink in node_modules/.bin, and Node keeps that symlink in
+ * argv, so real paths are compared.
+ */
+export function isEntrypoint(
+	argvPath: string | undefined,
+	moduleUrl: string,
+): boolean {
+	if (!argvPath) {
 		return false;
 	}
 
-	return pathToFileURL(resolve(entrypoint)).href === import.meta.url;
+	try {
+		return (
+			realpathSync(resolve(argvPath)) === realpathSync(fileURLToPath(moduleUrl))
+		);
+	} catch {
+		return false;
+	}
 }
 
 const generalHelpText = `Usage:
