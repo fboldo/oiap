@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.2](https://github.com/fboldo/oiap/compare/v0.5.1...v0.5.2) (2026-11-25)
+
+
+### Features
+
+* **install-agent-plugin:** --plugin is optional for single-plugin repositories ([#13](https://github.com/fboldo/oiap/issues/13)) ([8cca9b1](https://github.com/fboldo/oiap/commit/8cca9b11908b48c158b24c287ae39d8094ca373c))
+
+
+
+
+
 ## [0.5.1](https://github.com/fboldo/oiap/compare/v0.5.0...v0.5.1) (2026-11-25)
 
 
