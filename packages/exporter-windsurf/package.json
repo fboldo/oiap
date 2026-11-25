@@ -1,6 +1,6 @@
 {
 	"name": "@oiap/exporter-windsurf",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"type": "module",
 	"description": "Windsurf (Devin Desktop) target exporter for Open Interoperable Agent Plugins.",
 	"license": "MIT",

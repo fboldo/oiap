@@ -1,6 +1,6 @@
 {
 	"name": "@oiap/exporter-cline",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"type": "module",
 	"description": "Cline target exporter for Open Interoperable Agent Plugins.",
 	"license": "MIT",
