@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.1](https://github.com/fboldo/oiap/compare/v0.5.0...v0.5.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **cli:** run the bins when started through npm's .bin symlink ([#12](https://github.com/fboldo/oiap/issues/12)) ([0b697ea](https://github.com/fboldo/oiap/commit/0b697ea9f35b20d754a581929c459b81e81cfa2c))
+
+
+
+
+
 # [0.5.0](https://github.com/fboldo/oiap/compare/v0.4.0...v0.5.0) (2026-11-25)
 
 
