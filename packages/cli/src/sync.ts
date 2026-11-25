@@ -771,6 +771,13 @@ export interface SyncOptions {
 	check: boolean;
 	/** Overwrite files that exist but were not written by a previous sync. */
 	force?: boolean;
+	/**
+	 * Converting an existing plugin repository: take over files that already
+	 * sit where OIAP generates host files (hand-written manifests, catalogs),
+	 * overwriting them in place. Files copied as written (skills, resources,
+	 * target files) are still never overwritten.
+	 */
+	adopt?: boolean;
 }
 
 export interface SyncDifference {
@@ -831,7 +838,7 @@ export async function syncPluginFile(
 	const previous = await readLock(repoDir);
 	const catalogIndents = await matchJsonIndentation(repoDir, bundles);
 	const plan = planSync(plugin, bundles, options.layout, {
-		authored: await authorFiles(repoDir, bundles, previous),
+		authored: await authorFiles(repoDir, bundles, previous, options.adopt),
 		catalogIndents,
 	});
 
@@ -862,16 +869,27 @@ export async function syncPluginFile(
 		(difference) => difference.kind === "hand-written",
 	);
 
-	if (handWritten.length > 0 && !options.force) {
+	const adoptable = new Set(
+		[...bundles.values()].flatMap((bundle) =>
+			bundle.files
+				.filter((file) => !VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""))
+				.map((file) => file.path),
+		),
+	);
+	const blocking = options.adopt
+		? handWritten.filter((difference) => !adoptable.has(difference.path))
+		: handWritten;
+
+	if (blocking.length > 0 && !options.force) {
 		throw new Error(
-			`Refusing to overwrite files that a previous sync did not write: ${handWritten
+			`Refusing to overwrite files that a previous sync did not write: ${blocking
 				.map(
 					(difference) =>
 						`${difference.path} (${(plan.owners[difference.path] ?? []).join(", ")})`,
 				)
 				.join(
 					", ",
-				)}. Move them, leave out the target that writes them with --target, or pass --force to overwrite them.`,
+				)}. Move them, leave out the target that writes them with --target, pass --adopt once when converting an existing plugin repository, or --force to overwrite them.`,
 		);
 	}
 
@@ -1002,11 +1020,18 @@ async function authorFiles(
 	repoDir: string,
 	bundles: Map<string, TargetBundle>,
 	previous: SyncLock | undefined,
+	adopt = false,
 ): Promise<Map<string, Buffer>> {
 	const generated = new Set(Object.keys(previous?.files ?? {}));
 	const candidates = new Set(
 		[...bundles.values()].flatMap((bundle) =>
-			bundle.files.map((file) => file.path),
+			bundle.files
+				// When adopting, files OIAP generates are taken over, not reserved.
+				.filter(
+					(file) =>
+						!adopt || VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""),
+				)
+				.map((file) => file.path),
 		),
 	);
 	const authored = new Map<string, Buffer>();

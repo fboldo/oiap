@@ -239,6 +239,9 @@ VS Code Copilot, OpenClaw, Antigravity):
   `--force`, and it leaves your `README.md` alone.
 - Versions come from `manifest.version`, so every host manifest stays in
   lockstep.
+- Converting a repository that already has hand-written manifests? Run the
+  first sync with `--adopt`: it takes those files over in place, keeping their
+  indentation.
 - If your repository already keeps skills in a folder, use them in place with
   `skills: skillsFrom("skills")`. Sync leaves those `SKILL.md` files exactly as
   you wrote them and lets every host that reads `skills/` share them.

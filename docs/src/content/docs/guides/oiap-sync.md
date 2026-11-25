@@ -64,6 +64,21 @@ included. `oiap sync` writes only the host manifests and catalogs around it,
 never rewrites or deletes your skill files, and lets every host that reads the
 root `skills/` share them.
 
+## Adopt OIAP in an existing plugin repository
+
+If the repository already has hand-written host manifests and catalogs, write
+`oiap.plugin.ts`, then run the first sync with `--adopt`:
+
+```sh
+npx oiap sync --adopt
+```
+
+Sync takes over the files that sit where OIAP now generates host files
+(`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, catalogs, and so
+on) and rewrites them in place, keeping their JSON indentation, so the diff shows
+only real changes. Skills, resources and target files are never overwritten.
+Later syncs need no flag.
+
 ## Layout
 
 - Hosts that only install the repository root (Gemini CLI, Antigravity, and

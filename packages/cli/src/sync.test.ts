@@ -585,6 +585,60 @@ export default definePlugin({
 		).toEqual([]);
 	});
 
+	test("adopts hand-written manifests in place when converting a repository", async () => {
+		const { repo, pluginFile } = fixture();
+		mkdirSync(join(repo, ".claude-plugin"), { recursive: true });
+		writeFileSync(
+			join(repo, ".claude-plugin", "plugin.json"),
+			'{\n  "name": "sample",\n  "version": "0.9.0"\n}\n',
+		);
+		const options = {
+			inputPath: pluginFile,
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		await expect(
+			syncPluginFile({ ...options, check: false }),
+		).resolves.toMatchObject({
+			plan: {
+				placements: [
+					{ target: "claude-code", directory: "plugins/claude-code" },
+					expect.anything(),
+				],
+			},
+		});
+		rmSync(join(repo, "plugins"), { recursive: true, force: true });
+		rmSync(join(repo, ".oiap"), { recursive: true, force: true });
+		for (const path of [
+			".codex-plugin",
+			".agents",
+			"skills",
+			".claude-plugin/marketplace.json",
+		]) {
+			rmSync(join(repo, path), { recursive: true, force: true });
+		}
+
+		const adopted = await syncPluginFile({
+			...options,
+			check: false,
+			adopt: true,
+		});
+		const manifestText = readFileSync(
+			join(repo, ".claude-plugin", "plugin.json"),
+			"utf8",
+		);
+
+		expect(adopted.plan.placements[0]).toMatchObject({
+			target: "claude-code",
+			directory: "",
+		});
+		expect(manifestText).toContain('\n  "version": "1.0.0"');
+		expect(
+			(await syncPluginFile({ ...options, check: true })).differences,
+		).toEqual([]);
+	});
+
 	test("keeps a stale file the author changed", async () => {
 		const { repo, pluginFile } = fixture();
 		const options = {

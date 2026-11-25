@@ -18,6 +18,7 @@ interface SyncCommand {
 	exportName?: string;
 	check: boolean;
 	force: boolean;
+	adopt: boolean;
 	json: boolean;
 }
 
@@ -171,6 +172,7 @@ function parseSyncArgs(args: string[]): CliCommand {
 	let exportName: string | undefined;
 	let check = false;
 	let force = false;
+	let adopt = false;
 	let json = false;
 	const positionals: string[] = [];
 
@@ -228,6 +230,9 @@ function parseSyncArgs(args: string[]): CliCommand {
 			case "--force":
 				force = true;
 				break;
+			case "--adopt":
+				adopt = true;
+				break;
 			case "--json":
 				json = true;
 				break;
@@ -255,6 +260,7 @@ function parseSyncArgs(args: string[]): CliCommand {
 		exportName,
 		check,
 		force,
+		adopt,
 		json,
 	};
 }
@@ -484,7 +490,7 @@ function isCliEntrypoint(): boolean {
 
 const generalHelpText = `Usage:
 	oiap build <plugin-file> [--target all|agent-plugins|antigravity|claude-code|cline|codex|cursor|gemini-cli|github-copilot-cli|openclaw|opencode|vscode-copilot-chat|windsurf] [--out <dir>] [--export <name>] [--json]
-  oiap sync [plugin-file] [--check] [--layout root|plugins] [--target <targets>] [--repo <dir>] [--force] [--json]
+  oiap sync [plugin-file] [--check] [--layout root|plugins] [--target <targets>] [--repo <dir>] [--adopt] [--force] [--json]
   oiap targets [--json]
 
 Commands:
@@ -506,6 +512,9 @@ Options:
                          plugins: hosts that support it go under plugins/<target>/.
   -t, --target <list>    Comma-separated targets. Defaults to the manifest's supportedTargets.
   --repo <dir>           Repository directory. Defaults to the current directory.
+  --adopt                Converting an existing plugin repository: take over the
+                         hand-written manifests and catalogs OIAP now generates,
+                         in place. Skills and other copied files stay protected.
   --force                Overwrite files that a previous sync did not write.
   -e, --export <name>    Plugin export name. Defaults to default, then plugin.
   --json                 Print a machine-readable summary.
