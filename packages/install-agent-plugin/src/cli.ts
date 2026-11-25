@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import { access, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { bundleInstalledHookRuntime } from "@oiap/cli";
 import {
@@ -794,13 +794,29 @@ function displayPath(path: string): string {
 }
 
 function isCliEntrypoint(): boolean {
-	const entrypoint = process.argv[1];
+	return isEntrypoint(process.argv[1], import.meta.url);
+}
 
-	if (!entrypoint) {
+/**
+ * Whether `argvPath` (process.argv[1]) is the module at `moduleUrl`. npm runs
+ * bins through a symlink in node_modules/.bin, and Node keeps that symlink in
+ * argv, so real paths are compared.
+ */
+export function isEntrypoint(
+	argvPath: string | undefined,
+	moduleUrl: string,
+): boolean {
+	if (!argvPath) {
 		return false;
 	}
 
-	return pathToFileURL(resolve(entrypoint)).href === import.meta.url;
+	try {
+		return (
+			realpathSync(resolve(argvPath)) === realpathSync(fileURLToPath(moduleUrl))
+		);
+	} catch {
+		return false;
+	}
 }
 
 const helpText = `Usage:
