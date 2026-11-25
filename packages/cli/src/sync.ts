@@ -869,13 +869,14 @@ export async function syncPluginFile(
 		(difference) => difference.kind === "hand-written",
 	);
 
-	const adoptable = new Set(
-		[...bundles.values()].flatMap((bundle) =>
+	const adoptable = new Set([
+		...CATALOG_PATHS,
+		...[...bundles.values()].flatMap((bundle) =>
 			bundle.files
 				.filter((file) => !VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""))
 				.map((file) => file.path),
 		),
-	);
+	]);
 	const blocking = options.adopt
 		? handWritten.filter((difference) => !adoptable.has(difference.path))
 		: handWritten;
@@ -950,12 +951,30 @@ async function matchJsonIndentation(
 	repoDir: string,
 	bundles: Map<string, TargetBundle>,
 ): Promise<Map<string, string>> {
-	const packageJson = await readOptional(
-		resolveRepoPath(repoDir, "package.json"),
-	);
-	const fallback = packageJson
-		? jsonIndent(packageJson.toString("utf8"))
-		: undefined;
+	// New JSON files follow the root package.json, else any host JSON file the
+	// repository already has at a path OIAP generates.
+	const generatedJsonPaths = [
+		...CATALOG_PATHS,
+		...[...bundles.values()].flatMap((bundle) =>
+			bundle.files
+				.filter(
+					(file) =>
+						file.path.endsWith(".json") &&
+						!VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""),
+				)
+				.map((file) => file.path),
+		),
+	];
+	let fallback: string | undefined;
+
+	for (const path of ["package.json", ...generatedJsonPaths]) {
+		const existing = await readOptional(resolveRepoPath(repoDir, path));
+		fallback = existing ? jsonIndent(existing.toString("utf8")) : undefined;
+
+		if (fallback !== undefined) {
+			break;
+		}
+	}
 
 	for (const [target, bundle] of bundles) {
 		const files: RenderedFile[] = [];

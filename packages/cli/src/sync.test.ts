@@ -619,6 +619,12 @@ export default definePlugin({
 			rmSync(join(repo, path), { recursive: true, force: true });
 		}
 
+		mkdirSync(join(repo, ".agents", "plugins"), { recursive: true });
+		writeFileSync(
+			join(repo, ".agents", "plugins", "marketplace.json"),
+			'{\n  "name": "hand-written"\n}\n',
+		);
+
 		const adopted = await syncPluginFile({
 			...options,
 			check: false,
@@ -634,6 +640,15 @@ export default definePlugin({
 			directory: "",
 		});
 		expect(manifestText).toContain('\n  "version": "1.0.0"');
+		expect(
+			readFileSync(
+				join(repo, ".agents", "plugins", "marketplace.json"),
+				"utf8",
+			),
+		).toContain('\n  "name": "sample"');
+		expect(
+			readFileSync(join(repo, ".codex-plugin", "plugin.json"), "utf8"),
+		).toContain('\n  "name": "sample"');
 		expect(
 			(await syncPluginFile({ ...options, check: true })).differences,
 		).toEqual([]);
