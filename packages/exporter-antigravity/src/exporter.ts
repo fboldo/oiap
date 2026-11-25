@@ -30,8 +30,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -40,7 +42,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { ANTIGRAVITY_TARGET, antigravityProfile } from "./profile";
+import { ANTIGRAVITY_TARGET, antigravityProfile } from "./profile.ts";
 
 export type AntigravityPluginInput = PluginDefinition | PluginIr;
 
@@ -100,9 +102,14 @@ const ANTIGRAVITY_MANIFEST_KEYS = new Set([
 ]);
 const ANTIGRAVITY_PLUGIN_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * Gemini CLI and Antigravity both install from the repository root, so each
+ * keeps its hook runtime in its own directory and `oiap sync` can place both.
+ */
+const HOOK_RUNTIME_ROOT = `.oiap/runtime/${ANTIGRAVITY_TARGET}`;
 /** Hook commands run with cwd set to the plugin root. */
-const HOOK_RUNNER_PATH = "./.oiap/runtime/runner.mjs";
-const HOOK_MANIFEST_PATH = "./.oiap/runtime/manifest.json";
+const HOOK_RUNNER_PATH = `./${HOOK_RUNTIME_ROOT}/runner.mjs`;
+const HOOK_MANIFEST_PATH = `./${HOOK_RUNTIME_ROOT}/manifest.json`;
 
 /** Expanded in mcp_config.json `args`, `cwd` and `env` only. */
 const MCP_PLUGIN_ROOT_VARIABLE = "$" + "{PLUGIN_ROOT}";
@@ -169,12 +176,12 @@ export function exportAntigravity(
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: AntigravityPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		ANTIGRAVITY_TARGET,
+	);
 }
 
 function isPluginIr(plugin: AntigravityPluginInput): plugin is PluginIr {
@@ -215,6 +222,13 @@ function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Hand-written host files (hook scripts, extra skills, ...) at the
+		// plugin root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[ANTIGRAVITY_TARGET],
+			RESOURCE_ROOT,
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	const pathContext = { resourceRoot: RESOURCE_ROOT, agentFiles };
 	const pluginFiles = [
@@ -248,26 +262,61 @@ function renderAntigravityFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+/**
+ * `displayName`, `logo`, `author` (string or {name, email, url}),
+ * `repository` and `keywords` are documented plugin.json keys.
+ * https://antigravity.google/docs/build-plugins.md
+ * https://antigravity.google/schemas/v1/plugin.json
+ */
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
-	const content = omitUndefined({
-		$schema: ANTIGRAVITY_MANIFEST_SCHEMA,
-		name: pluginName(ir),
-		displayName: manifest.name,
-		description: manifest.description,
-		version: manifest.version,
-		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
-		homepage: manifest.homepage,
-		repository: manifest.repository,
-		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
-	});
+	const keywords = manifest.keywords ?? manifest.categories;
+	const content = mergeTargetMetadata(
+		omitUndefined({
+			$schema: ANTIGRAVITY_MANIFEST_SCHEMA,
+			name: pluginName(ir),
+			displayName: manifest.displayName ?? manifest.name,
+			description: manifest.description,
+			version: manifest.version,
+			logo: manifestLogo(ir),
+			author: manifest.author
+				? omitUndefined({ ...manifest.author })
+				: undefined,
+			homepage: manifest.homepage,
+			repository: manifest.repository,
+			license: manifest.license,
+			keywords: keywords.length > 0 ? keywords : undefined,
+		}),
+		manifest.targetMetadata?.[ANTIGRAVITY_TARGET],
+	);
 
 	return jsonFile(
 		ANTIGRAVITY_MANIFEST_PATH,
 		content,
 		sourceRef(manifest.id, "manifest"),
 	);
+}
+
+/**
+ * The schema accepts a relative path to a .png, .svg, .jpg, .jpeg or .webp
+ * file inside the plugin. Resources are written at the plugin root, so the
+ * resource path is the manifest path.
+ */
+const ANTIGRAVITY_LOGO_PATH =
+	/^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\/)\S.*\.(png|svg|jpe?g|webp)$/i;
+
+function manifestLogo(ir: PluginIr): string | undefined {
+	const logo = ir.manifest?.logo?.replace(/^\.\//, "");
+
+	if (
+		!logo ||
+		!ANTIGRAVITY_LOGO_PATH.test(logo) ||
+		!(ir.resources ?? []).some((resource) => resource.path === logo)
+	) {
+		return undefined;
+	}
+
+	return logo;
 }
 
 function pluginName(ir: PluginIr): string {
@@ -344,14 +393,22 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					// `disable-model-invocation: true` limits the skill to /<name>.
+					// No key hides a skill from the user (see collectDegradedCapabilities).
+					// https://antigravity.google/docs/build-plugins.md
+					"disable-model-invocation":
+						skill.modelInvocable === false ? true : undefined,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -498,6 +555,12 @@ function renderAgents(
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const path = agentFiles[agent.id] ?? `agents/${slug(agent.id, "agent")}.md`;
 		const name = path.slice("agents/".length, -".md".length);
+
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(path, agent.source.content, sourceRef(agent.id, "agent"));
+		}
+
 		const content = withFrontmatter(
 			{
 				name,
@@ -528,6 +591,7 @@ function renderHookFiles(ir: PluginIr): RenderedFile[] {
 			target: ANTIGRAVITY_TARGET,
 			hooks,
 			targetEvent: (hook) => toAntigravityHookEvent(hook.event),
+			runtimeRoot: HOOK_RUNTIME_ROOT,
 		}).files,
 	];
 }
@@ -744,7 +808,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile[] {
 		"- `skills/`: skills, plus commands and workflows rendered as skills (invoke with `/<skill-name>`), when present. Skill files live beside each SKILL.md.",
 		"- `agents/`: custom agents and subagents, when present.",
 		"- `rules/`: rules, when present.",
-		"- `hooks.json` and `.oiap/runtime/`: lifecycle hooks and the OIAP hook runner, when present.",
+		`- \`hooks.json\` and \`${HOOK_RUNTIME_ROOT}/\`: lifecycle hooks and the OIAP hook runner, when present.`,
 		"- `mcp_config.json`: MCP servers, when present.",
 		"- `.oiap/`: source map, capability report, permission fragments, and degraded metadata.",
 		"Plugin resources, when present, are at the plugin root.",
@@ -838,6 +902,36 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			"Antigravity documents no read-only flag for agents, only a `tools` allowlist and `commandExecutionPolicy` that Gemini CLI, which reads the same agents/ folder, does not accept. Add them through targetMetadata.antigravity if the plugin targets Antigravity only.",
 		),
 	];
+
+	const modelOnlySkills = ir.skills.filter(
+		(skill) => skill.userInvocable === false,
+	);
+
+	if (modelOnlySkills.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: ANTIGRAVITY_TARGET },
+			from: "model-only-skill",
+			to: "model-and-user-skill",
+			reason: `Antigravity exposes every skill as /<name> and documents no key to hide one, so ${modelOnlySkills.length} model-only skill(s) (${modelOnlySkills.map((skill) => skill.id).join(", ")}) are also visible to the user.`,
+		});
+	}
+
+	// Agent frontmatter (name, description, tools, mainAgent, subagent, model,
+	// commandExecutionPolicy, mcpServers, skills/plugins) has no switch for the
+	// workspace rules and AGENTS.md context.
+	// https://antigravity.google/docs/subagents.md
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (isolatedAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: ANTIGRAVITY_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `Antigravity agent frontmatter has no key to leave out workspace and user rules, so ${isolatedAgents.length} agent(s) (${isolatedAgents.map((agent) => agent.id).join(", ")}) may still see project and user instructions.`,
+		});
+	}
 
 	if (hasCommandOutput(ir)) {
 		degradations.push({
@@ -949,6 +1043,14 @@ function collectIssues(
 			code: "missing-manifest",
 			message:
 				"Plugin manifest is missing; fallback Antigravity metadata was generated.",
+		});
+	}
+
+	if (ir.manifest?.logo && !manifestLogo(ir)) {
+		issues.push({
+			severity: "warning",
+			code: "invalid-logo",
+			message: `Manifest logo ${ir.manifest.logo} is not a .png, .svg, .jpg, .jpeg or .webp file in plugin resources, so plugin.json has no logo.`,
 		});
 	}
 

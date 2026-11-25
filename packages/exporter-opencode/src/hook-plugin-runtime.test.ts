@@ -8,7 +8,7 @@ import {
 	matchesHook,
 	parseRuntimeResult,
 	safeJson,
-} from "./hook-plugin-runtime";
+} from "./hook-plugin-runtime.ts";
 
 describe("OpenCode hook plugin runtime", () => {
 	test("dispatches matching direct tool hooks", async () => {

@@ -15,9 +15,10 @@ import type {
 	TargetBundle,
 	ValidationIssue,
 } from "@oiap/core";
-import { bundleHooksFromSource, loadPluginFile } from "./build";
-import type { CliPluginInput } from "./registry";
-import { getRegisteredExporter } from "./registry";
+import { mergeTargetMetadata } from "@oiap/core";
+import { bundleHooksFromSource, loadPluginFile } from "./build.ts";
+import type { CliPluginInput } from "./registry.ts";
+import { getRegisteredExporter } from "./registry.ts";
 
 /**
  * Where each git-installed host looks for plugin files, from its docs:
@@ -31,6 +32,12 @@ interface SyncTargetRule {
 	rootOnly: boolean;
 	reads: string[];
 	marketplace?: MarketplaceKind;
+	/**
+	 * Files the exporter writes for project installs that a plugin installed
+	 * from git never loads; in a plugin repository they would configure the
+	 * repository itself, so sync leaves them out.
+	 */
+	projectOnly?: string[];
 }
 
 type MarketplaceKind = "claude" | "codex" | "cursor" | "copilot";
@@ -42,18 +49,26 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		reads: [
 			"gemini-extension.json",
 			"GEMINI.md",
-			"commands/",
+			"commands/*.toml",
 			"hooks/hooks.json",
 			"skills/",
 			"agents/",
 			"policies/",
 		],
 	},
+	// https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.0.0.md
+	// The open manifest at the root. Copilot CLI and VS Code read it in place
+	// of their own manifest, so it also serves them through the Copilot catalog.
+	"agent-plugins": {
+		rootOnly: true,
+		reads: ["plugin.json", "skills/", "mcp.json"],
+		marketplace: "copilot",
+	},
 	// https://antigravity.google/docs/build-plugins.md
+	// Its .antigravity-plugin/plugin.json wins over a root plugin.json.
 	antigravity: {
 		rootOnly: true,
 		reads: [
-			"plugin.json",
 			".antigravity-plugin/",
 			"skills/",
 			"agents/",
@@ -63,8 +78,10 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		],
 	},
 	// https://github.com/openclaw/openclaw/blob/main/docs/cli/plugins/install.md
+	// `git:` installs read the root, but a checkout or package can point at a
+	// subdirectory, so OpenClaw moves when the root already has a package.json.
 	openclaw: {
-		rootOnly: true,
+		rootOnly: false,
 		reads: ["openclaw.plugin.json", "package.json", "skills/"],
 	},
 	// https://code.claude.com/docs/en/plugins-reference: skills, hooks and MCP
@@ -74,7 +91,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		reads: [
 			".claude-plugin/plugin.json",
 			"skills/",
-			"commands/",
+			"commands/*.md",
 			"agents/",
 			"hooks/hooks.json",
 			".mcp.json",
@@ -82,6 +99,8 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		marketplace: "claude",
 	},
 	// https://developers.openai.com/codex/plugins/build
+	// Codex reads a root plugin.json only with the Agent Plugins $schema, and
+	// layers .codex-plugin/plugin.json over it, so the two share the root.
 	codex: {
 		rootOnly: false,
 		reads: [
@@ -91,6 +110,8 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 			".mcp.json",
 		],
 		marketplace: "codex",
+		// Codex plugins have no agents, rules or instructions component.
+		projectOnly: ["AGENTS.md", ".codex/"],
 	},
 	// https://cursor.com/docs/reference/plugins
 	cursor: {
@@ -107,12 +128,12 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 		marketplace: "cursor",
 	},
 	// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
+	// Its own root plugin.json is found before .claude-plugin/plugin.json.
 	"github-copilot-cli": {
 		rootOnly: false,
 		reads: [
 			"plugin.json",
 			".plugin/plugin.json",
-			".claude-plugin/plugin.json",
 			"skills/",
 			"agents/",
 			"hooks.json",
@@ -130,7 +151,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 			".claude-plugin/plugin.json",
 			"skills/",
 			"agents/",
-			"commands/",
+			"commands/*.md",
 			"hooks.json",
 			".mcp.json",
 		],
@@ -140,6 +161,7 @@ const SYNC_TARGET_RULES: Record<string, SyncTargetRule> = {
 
 /** Root-only hosts first, then the order movable hosts try the root. */
 const SYNC_TARGET_ORDER = [
+	"agent-plugins",
 	"gemini-cli",
 	"antigravity",
 	"openclaw",
@@ -152,7 +174,11 @@ const SYNC_TARGET_ORDER = [
 
 export const syncTargets = [...SYNC_TARGET_ORDER];
 
-/** Bundle files that describe a build and do not belong in a plugin repository. */
+/**
+ * Bundle files that describe a build and do not belong in a plugin repository;
+ * per-hook evidence under `.oiap/hooks/` and permission fragments no host reads
+ * (`.oiap/<target>-permissions.json`) are left out too.
+ */
 const BUNDLE_ONLY_FILES = new Set([
 	"README.md",
 	".oiap/bundle.json",
@@ -183,6 +209,18 @@ export interface SyncPlan {
 	errors: string[];
 }
 
+/** What the repository already holds, as planSync needs to know it. */
+export interface SyncRepositoryState {
+	/**
+	 * Files the author wrote, by path. A target that would write different
+	 * content at one of these paths moves off the root; identical files, such
+	 * as skills used with `skillsFrom`, are shared and stay the author's.
+	 */
+	authored?: ReadonlyMap<string, Buffer>;
+	/** Indentation for each catalog file, to match the repository. */
+	catalogIndents?: ReadonlyMap<string, string>;
+}
+
 export interface SyncLock {
 	plugin: string;
 	version: string;
@@ -210,9 +248,24 @@ export function planSync(
 	plugin: CliPluginInput,
 	bundles: Map<string, TargetBundle>,
 	layout: SyncLayout,
+	repository: SyncRepositoryState = {},
 ): SyncPlan {
+	const authored = repository.authored ?? new Map<string, Buffer>();
+	const catalogIndents = repository.catalogIndents ?? new Map<string, string>();
 	const manifest = getManifest(plugin);
 	const placed = new Map<string, PlacedFile>();
+	declaredReads.clear();
+	optedInPaths.clear();
+	for (const [target, bundle] of bundles) {
+		optedInPaths.set(target, declaredPaths(target, bundle.files));
+	}
+	const cursorBundle = bundles.get("cursor");
+	const cursorPaths = cursorBundle
+		? cursorReads(cursorBundle.files)
+		: undefined;
+	if (cursorPaths) {
+		declaredReads.set("cursor", cursorPaths);
+	}
 	const rootTargets: string[] = [];
 	const placements: SyncPlacement[] = [];
 	const notes: string[] = [];
@@ -226,9 +279,28 @@ export function planSync(
 			continue;
 		}
 
-		const files = bundle.files.filter(
-			(file) => !BUNDLE_ONLY_FILES.has(file.path),
+		const projectOnly = bundle.files.filter((file) =>
+			rule.projectOnly?.some((entry) =>
+				entry.endsWith("/") ? file.path.startsWith(entry) : file.path === entry,
+			),
 		);
+		const files = bundle.files.filter(
+			(file) =>
+				!projectOnly.includes(file) &&
+				!BUNDLE_ONLY_FILES.has(file.path) &&
+				!file.path.startsWith(".oiap/hooks/") &&
+				!/^\.oiap\/[^/]+-permissions\.json$/.test(file.path),
+		);
+
+		if (projectOnly.length > 0) {
+			notes.push(
+				`${target}: left out ${projectOnly.length} project-only file(s) (${[
+					...new Set(projectOnly.map((file) => file.path.split("/")[0])),
+				].join(
+					", ",
+				)}) that a plugin installed from git never loads; use install-agent-plugin to install them into a project.`,
+			);
+		}
 		let directory = "";
 
 		if (rule.rootOnly) {
@@ -265,6 +337,10 @@ export function planSync(
 			);
 		} else if (
 			layout === "plugins" ||
+			files.some((file) => {
+				const own = authored.get(file.path);
+				return own !== undefined && !own.equals(toBuffer(file.content));
+			}) ||
 			pathConflicts(files, placed).length > 0 ||
 			foreignReads(target, files, placed, rootTargets).length > 0
 		) {
@@ -299,7 +375,12 @@ export function planSync(
 		});
 	}
 
-	const marketplaceFiles = renderMarketplaces(manifest, placements);
+	const marketplaceFiles = renderMarketplaces(manifest, placements).map(
+		(file) => {
+			const indent = catalogIndents.get(file.path);
+			return indent === undefined ? file : reindent(file, indent);
+		},
+	);
 
 	for (const file of marketplaceFiles) {
 		if (placed.has(file.path)) {
@@ -315,6 +396,7 @@ export function planSync(
 	}
 
 	const files = [...placed.values()]
+		.filter((entry) => !authored.get(entry.file.path)?.equals(entry.content))
 		.map((entry) => entry.file)
 		.sort((left, right) => left.path.localeCompare(right.path));
 	const lock: SyncLock = {
@@ -393,7 +475,11 @@ function foreignReads(
 	for (const [path, entry] of placed) {
 		const mine = own.get(path);
 
-		if (reads(target, path) && !mine?.equals(entry.content)) {
+		if (
+			reads(target, path) &&
+			!optsIn(target, path) &&
+			!mine?.equals(entry.content)
+		) {
 			found.push({
 				reader: target,
 				writer: [...entry.owners].join(", "),
@@ -411,7 +497,7 @@ function foreignReads(
 		}
 
 		for (const rootTarget of rootTargets) {
-			if (reads(rootTarget, file.path)) {
+			if (reads(rootTarget, file.path) && !optsIn(rootTarget, file.path)) {
 				found.push({ reader: rootTarget, writer: target, path: file.path });
 			}
 		}
@@ -420,97 +506,256 @@ function foreignReads(
 	return found;
 }
 
+/**
+ * A read entry is a file path, a directory ending in "/", or "dir/*.ext" for
+ * the files with that extension anywhere under dir (Claude Code loads only
+ * Markdown commands; Gemini CLI only TOML ones).
+ */
 function reads(target: string, path: string): boolean {
-	return (SYNC_TARGET_RULES[target]?.reads ?? []).some((entry) =>
-		entry.endsWith("/") ? path.startsWith(entry) : path === entry,
+	return (
+		declaredReads.get(target) ??
+		SYNC_TARGET_RULES[target]?.reads ??
+		[]
+	).some((entry) => {
+		const star = entry.indexOf("/*.");
+		if (star !== -1) {
+			return (
+				path.startsWith(entry.slice(0, star + 1)) &&
+				path.endsWith(entry.slice(star + 2))
+			);
+		}
+		return entry.endsWith("/") ? path.startsWith(entry) : path === entry;
+	});
+}
+
+/**
+ * Files a host's own manifest names explicitly, such as Cursor or Codex
+ * `"mcpServers": "./.mcp.json"`: the author chose to share that file, so
+ * loading it is not a foreign read. Directories (`skills/`) stay protected.
+ */
+const optedInPaths = new Map<string, string[]>();
+
+const MANIFEST_FILES: Record<string, string> = {
+	"claude-code": ".claude-plugin/plugin.json",
+	codex: ".codex-plugin/plugin.json",
+	cursor: ".cursor-plugin/plugin.json",
+};
+
+const COMPONENT_KEYS = [
+	"skills",
+	"agents",
+	"commands",
+	"rules",
+	"hooks",
+	"mcpServers",
+	"lspServers",
+	"apps",
+];
+
+function declaredPaths(target: string, files: RenderedFile[]): string[] {
+	const manifestPath = MANIFEST_FILES[target];
+	const manifestFile = files.find((file) => file.path === manifestPath);
+
+	if (!manifestFile) {
+		return [];
+	}
+
+	const manifest = JSON.parse(String(manifestFile.content)) as Record<
+		string,
+		unknown
+	>;
+
+	return COMPONENT_KEYS.flatMap((key) => {
+		const value = manifest[key];
+		const values = Array.isArray(value) ? value : [value];
+		return values
+			.filter((entry): entry is string => typeof entry === "string")
+			.map((entry) => entry.replace(/^\.\//, ""))
+			.filter((entry) => /\.[a-z]+$/i.test(entry) && !entry.endsWith("/"));
+	});
+}
+
+function optsIn(target: string, path: string): boolean {
+	return (optedInPaths.get(target) ?? []).includes(path);
+}
+
+/**
+ * Cursor's manifest paths replace its default component locations
+ * (https://cursor.com/docs/reference/plugins), so what it reads depends on the
+ * manifest it was given. Filled in by planSync from each bundle.
+ */
+const declaredReads = new Map<string, string[]>();
+
+const CURSOR_COMPONENTS: Record<string, string> = {
+	skills: "skills/",
+	agents: "agents/",
+	commands: "commands/",
+	rules: "rules/",
+	hooks: "hooks/hooks.json",
+	mcpServers: "mcp.json",
+};
+
+function cursorReads(files: RenderedFile[]): string[] | undefined {
+	const manifestFile = files.find(
+		(file) => file.path === ".cursor-plugin/plugin.json",
 	);
+
+	if (!manifestFile) {
+		return undefined;
+	}
+
+	const manifest = JSON.parse(String(manifestFile.content)) as Record<
+		string,
+		unknown
+	>;
+
+	return [
+		".cursor-plugin/plugin.json",
+		...Object.entries(CURSOR_COMPONENTS).map(([key, fallback]) => {
+			const declared = manifest[key];
+			if (typeof declared !== "string") {
+				return fallback;
+			}
+			const path = declared.replace(/^\.\//, "");
+			return fallback.endsWith("/") && !path.endsWith("/") ? `${path}/` : path;
+		}),
+	];
 }
 
 function renderMarketplaces(
 	manifest: PluginManifest,
 	placements: SyncPlacement[],
 ): RenderedFile[] {
-	const owner = manifest.author ?? { name: manifest.name };
-	const files: RenderedFile[] = [];
+	const settings = manifest.marketplace ?? {};
+	const catalogName = settings.name ?? manifest.id;
+	const owner = settings.owner ?? manifest.author ?? { name: manifest.name };
 	const source = (placement: SyncPlacement): string =>
 		placement.directory ? `./${placement.directory}` : "./";
 	const placementFor = (kind: MarketplaceKind): SyncPlacement | undefined =>
 		placements.find(
 			(placement) => SYNC_TARGET_RULES[placement.target]?.marketplace === kind,
 		);
+	// Fields every catalog format accepts for an entry; hosts ignore the rest.
+	const entry = (placement: SyncPlacement): Record<string, unknown> =>
+		mergeTargetMetadata(
+			mergeTargetMetadata(
+				omitUndefined({
+					name: manifest.id,
+					source: source(placement),
+					description: manifest.description,
+					version: manifest.version,
+					author: manifest.author,
+					homepage: manifest.homepage,
+					repository: manifest.repository,
+					license: manifest.license,
+					keywords: manifest.keywords,
+					category: manifest.categories[0],
+				}),
+				settings.entry,
+			),
+			settings.targetMetadata?.[placement.target]?.entry,
+		);
+	const catalog = (
+		placement: SyncPlacement,
+		base: Record<string, unknown>,
+	): Record<string, unknown> =>
+		mergeTargetMetadata(
+			base,
+			settings.targetMetadata?.[placement.target]?.catalog,
+		);
+	const files: RenderedFile[] = [];
 
+	// https://code.claude.com/docs/en/plugins/marketplace-reference
 	const claude = placementFor("claude");
 	if (claude) {
 		files.push(
-			jsonFile(".claude-plugin/marketplace.json", {
-				name: manifest.id,
-				owner,
-				plugins: [
+			jsonFile(
+				".claude-plugin/marketplace.json",
+				catalog(
+					claude,
 					omitUndefined({
-						name: manifest.id,
-						source: source(claude),
-						description: manifest.description,
-						version: manifest.version,
-						homepage: manifest.homepage,
+						name: catalogName,
+						owner,
+						metadata: settings.description
+							? { description: settings.description }
+							: undefined,
+						plugins: [entry(claude)],
 					}),
-				],
-			}),
+				),
+			),
 		);
 	}
 
+	// https://developers.openai.com/codex/plugins/build
 	const codex = placementFor("codex");
 	if (codex) {
 		files.push(
-			jsonFile(".agents/plugins/marketplace.json", {
-				name: manifest.id,
-				interface: { displayName: manifest.name },
-				plugins: [
-					omitUndefined({
-						name: manifest.id,
-						source: source(codex),
-						policy: {
-							installation: "AVAILABLE",
-							authentication: "ON_INSTALL",
-						},
-						category: manifest.categories[0],
-					}),
-				],
-			}),
+			jsonFile(
+				".agents/plugins/marketplace.json",
+				catalog(codex, {
+					name: catalogName,
+					interface: { displayName: manifest.displayName ?? manifest.name },
+					plugins: [
+						mergeTargetMetadata(
+							mergeTargetMetadata(
+								omitUndefined({
+									name: manifest.id,
+									source: source(codex),
+									policy: {
+										installation: "AVAILABLE",
+										authentication: "ON_INSTALL",
+									},
+									category: manifest.categories[0],
+								}),
+								settings.entry,
+							),
+							settings.targetMetadata?.codex?.entry,
+						),
+					],
+				}),
+			),
 		);
 	}
 
+	// https://cursor.com/docs/reference/plugins
 	const cursor = placementFor("cursor");
 	if (cursor) {
 		files.push(
-			jsonFile(".cursor-plugin/marketplace.json", {
-				name: manifest.id,
-				owner,
-				plugins: [
-					{
-						name: manifest.id,
-						source: source(cursor),
-						description: manifest.description,
-					},
-				],
-			}),
+			jsonFile(
+				".cursor-plugin/marketplace.json",
+				catalog(
+					cursor,
+					omitUndefined({
+						name: catalogName,
+						owner,
+						metadata: settings.description
+							? { description: settings.description }
+							: undefined,
+						plugins: [entry(cursor)],
+					}),
+				),
+			),
 		);
 	}
 
+	// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
 	const copilot = placementFor("copilot");
 	if (copilot) {
 		files.push(
-			jsonFile(".github/plugin/marketplace.json", {
-				name: manifest.id,
-				owner,
-				plugins: [
+			jsonFile(
+				".github/plugin/marketplace.json",
+				catalog(
+					copilot,
 					omitUndefined({
-						name: manifest.id,
-						source: source(copilot),
-						description: manifest.description,
-						version: manifest.version,
+						name: catalogName,
+						owner,
+						metadata: settings.description
+							? { description: settings.description }
+							: undefined,
+						plugins: [entry(copilot)],
 					}),
-				],
-			}),
+				),
+			),
 		);
 	}
 
@@ -526,6 +771,13 @@ export interface SyncOptions {
 	check: boolean;
 	/** Overwrite files that exist but were not written by a previous sync. */
 	force?: boolean;
+	/**
+	 * Converting an existing plugin repository: take over files that already
+	 * sit where OIAP generates host files (hand-written manifests, catalogs),
+	 * overwriting them in place. Files copied as written (skills, resources,
+	 * target files) are still never overwritten.
+	 */
+	adopt?: boolean;
 }
 
 export interface SyncDifference {
@@ -550,9 +802,19 @@ export async function syncPluginFile(
 	const servesVsCode =
 		selected.includes("github-copilot-cli") &&
 		selected.includes("vscode-copilot-chat");
-	const targets = servesVsCode
-		? selected.filter((target) => target !== "vscode-copilot-chat")
-		: selected;
+	// A root Agent Plugins manifest is what Copilot CLI and VS Code read first,
+	// so it serves them both.
+	const servedByAgentPlugins: string[] = selected.includes("agent-plugins")
+		? selected.filter(
+				(target) =>
+					target === "github-copilot-cli" || target === "vscode-copilot-chat",
+			)
+		: [];
+	const targets = selected.filter(
+		(target) =>
+			!servedByAgentPlugins.includes(target) &&
+			!(servesVsCode && target === "vscode-copilot-chat"),
+	);
 	const bundles = new Map<string, TargetBundle>();
 
 	for (const target of targets) {
@@ -572,9 +834,19 @@ export async function syncPluginFile(
 		);
 	}
 
-	const plan = planSync(plugin, bundles, options.layout);
+	const repoDir = resolve(options.repoDir);
+	const previous = await readLock(repoDir);
+	const catalogIndents = await matchJsonIndentation(repoDir, bundles);
+	const plan = planSync(plugin, bundles, options.layout, {
+		authored: await authorFiles(repoDir, bundles, previous, options.adopt),
+		catalogIndents,
+	});
 
-	if (servesVsCode) {
+	if (servedByAgentPlugins.length > 0) {
+		plan.notes.push(
+			`${servedByAgentPlugins.join(" and ")} ${servedByAgentPlugins.length === 1 ? "reads" : "read"} the root Agent Plugins plugin.json, so the agent-plugins target serves ${servedByAgentPlugins.length === 1 ? "it" : "them"}; ship Copilot-only agents or hooks with targetFiles["agent-plugins"] under com.github.copilot/.`,
+		);
+	} else if (servesVsCode) {
 		plan.notes.push(
 			"vscode-copilot-chat is served by the github-copilot-cli plugin: VS Code reads the same .github/plugin/marketplace.json and discovers plugins installed with Copilot CLI.",
 		);
@@ -586,8 +858,6 @@ export async function syncPluginFile(
 		);
 	}
 
-	const repoDir = resolve(options.repoDir);
-	const previous = await readLock(repoDir);
 	const differences = await diffRepository(repoDir, plan.files, previous);
 	const result: SyncResult = { plan, differences, written: [], removed: [] };
 
@@ -599,16 +869,28 @@ export async function syncPluginFile(
 		(difference) => difference.kind === "hand-written",
 	);
 
-	if (handWritten.length > 0 && !options.force) {
+	const adoptable = new Set([
+		...CATALOG_PATHS,
+		...[...bundles.values()].flatMap((bundle) =>
+			bundle.files
+				.filter((file) => !VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""))
+				.map((file) => file.path),
+		),
+	]);
+	const blocking = options.adopt
+		? handWritten.filter((difference) => !adoptable.has(difference.path))
+		: handWritten;
+
+	if (blocking.length > 0 && !options.force) {
 		throw new Error(
-			`Refusing to overwrite files that a previous sync did not write: ${handWritten
+			`Refusing to overwrite files that a previous sync did not write: ${blocking
 				.map(
 					(difference) =>
 						`${difference.path} (${(plan.owners[difference.path] ?? []).join(", ")})`,
 				)
 				.join(
 					", ",
-				)}. Move them, leave out the target that writes them with --target, or pass --force to overwrite them.`,
+				)}. Move them, leave out the target that writes them with --target, pass --adopt once when converting an existing plugin repository, or --force to overwrite them.`,
 		);
 	}
 
@@ -616,6 +898,17 @@ export async function syncPluginFile(
 		const target = resolveRepoPath(repoDir, difference.path);
 
 		if (difference.kind === "stale") {
+			// Only remove a file that is still exactly what the last sync wrote.
+			const current = await readOptional(target);
+			const expected = previous?.files[difference.path];
+
+			if (current && expected && hash(current) !== expected) {
+				plan.notes.push(
+					`Kept ${difference.path}: it changed since the last sync. Delete it by hand if it is no longer needed.`,
+				);
+				continue;
+			}
+
 			await rm(target, { force: true });
 			await removeEmptyParents(repoDir, dirname(target));
 			result.removed.push(difference.path);
@@ -638,6 +931,143 @@ export async function syncPluginFile(
 	}
 
 	return result;
+}
+
+/**
+ * Write generated JSON with the indentation the repository already uses: the
+ * existing file's, else the root package.json's. A first sync then changes
+ * only the values that differ, not every line.
+ */
+const VERBATIM_KINDS = new Set(["skill-file", "resource", "target-file"]);
+
+const CATALOG_PATHS = [
+	".claude-plugin/marketplace.json",
+	".agents/plugins/marketplace.json",
+	".cursor-plugin/marketplace.json",
+	".github/plugin/marketplace.json",
+];
+
+async function matchJsonIndentation(
+	repoDir: string,
+	bundles: Map<string, TargetBundle>,
+): Promise<Map<string, string>> {
+	// New JSON files follow the root package.json, else any host JSON file the
+	// repository already has at a path OIAP generates.
+	const generatedJsonPaths = [
+		...CATALOG_PATHS,
+		...[...bundles.values()].flatMap((bundle) =>
+			bundle.files
+				.filter(
+					(file) =>
+						file.path.endsWith(".json") &&
+						!VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""),
+				)
+				.map((file) => file.path),
+		),
+	];
+	let fallback: string | undefined;
+
+	for (const path of ["package.json", ...generatedJsonPaths]) {
+		const existing = await readOptional(resolveRepoPath(repoDir, path));
+		fallback = existing ? jsonIndent(existing.toString("utf8")) : undefined;
+
+		if (fallback !== undefined) {
+			break;
+		}
+	}
+
+	for (const [target, bundle] of bundles) {
+		const files: RenderedFile[] = [];
+
+		for (const file of bundle.files) {
+			// Files copied as written (skill files, resources, target files) keep
+			// their exact bytes; only JSON OIAP generates is reindented.
+			if (
+				!file.path.endsWith(".json") ||
+				typeof file.content !== "string" ||
+				VERBATIM_KINDS.has(file.source?.primitiveKind ?? "")
+			) {
+				files.push(file);
+				continue;
+			}
+
+			const existing = await readOptional(resolveRepoPath(repoDir, file.path));
+			const indent = existing
+				? jsonIndent(existing.toString("utf8"))
+				: fallback;
+
+			files.push(indent === undefined ? file : reindent(file, indent));
+		}
+
+		bundles.set(target, { ...bundle, files });
+	}
+
+	// Indentation for the catalogs sync writes itself.
+	const catalogIndents = new Map<string, string>();
+
+	for (const path of CATALOG_PATHS) {
+		const existing = await readOptional(resolveRepoPath(repoDir, path));
+		const indent = existing ? jsonIndent(existing.toString("utf8")) : fallback;
+
+		if (indent !== undefined) {
+			catalogIndents.set(path, indent);
+		}
+	}
+
+	return catalogIndents;
+}
+
+function jsonIndent(text: string): string | undefined {
+	const match = /^[[{]\s*\n([ \t]+)\S/m.exec(text);
+	return match?.[1];
+}
+
+function reindent(file: RenderedFile, indent: string): RenderedFile {
+	try {
+		const value: unknown = JSON.parse(String(file.content));
+		return { ...file, content: `${JSON.stringify(value, null, indent)}\n` };
+	} catch {
+		return file;
+	}
+}
+
+/**
+ * Paths some target would write that already exist in the repository without
+ * a previous sync having written them: the author's files, with their content.
+ */
+async function authorFiles(
+	repoDir: string,
+	bundles: Map<string, TargetBundle>,
+	previous: SyncLock | undefined,
+	adopt = false,
+): Promise<Map<string, Buffer>> {
+	const generated = new Set(Object.keys(previous?.files ?? {}));
+	const candidates = new Set(
+		[...bundles.values()].flatMap((bundle) =>
+			bundle.files
+				// When adopting, files OIAP generates are taken over, not reserved.
+				.filter(
+					(file) =>
+						!adopt || VERBATIM_KINDS.has(file.source?.primitiveKind ?? ""),
+				)
+				.map((file) => file.path),
+		),
+	);
+	const authored = new Map<string, Buffer>();
+
+	for (const path of candidates) {
+		if (generated.has(path) || BUNDLE_ONLY_FILES.has(path)) {
+			continue;
+		}
+
+		const content = await readOptional(resolveRepoPath(repoDir, path));
+
+		if (content) {
+			authored.set(path, content);
+		}
+	}
+
+	return authored;
 }
 
 export function selectSyncTargets(

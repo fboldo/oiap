@@ -26,13 +26,15 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
 import { renderHookRuntimeFiles, unsupportedHookIds } from "@oiap/runtime";
-import { CLINE_TARGET, clineProfile } from "./profile";
+import { CLINE_TARGET, clineProfile } from "./profile.ts";
 
 export type ClinePluginInput = PluginDefinition | PluginIr;
 
@@ -129,11 +131,11 @@ export function exportCline(plugin: ClinePluginInput): TargetBundle {
 }
 
 function normalizePluginInput(plugin: ClinePluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	// Primitives limited to other hosts with `targets` never reach Cline.
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CLINE_TARGET,
+	);
 }
 
 function isPluginIr(plugin: ClinePluginInput): plugin is PluginIr {
@@ -168,6 +170,13 @@ function renderClineFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			resourceRoot(ir),
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Author files for Cline land at the project root the bundle is
+		// installed into, like the generated `.cline/` and `.clinerules/` files.
+		...renderPluginFiles(
+			ir.targetFiles?.[CLINE_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Cline has no plugin root variable in skill or agent text, so bundle
@@ -206,14 +215,26 @@ function renderClineFiles(ir: PluginIr): RenderedFile[] {
 
 function renderTargetManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
-	const content = omitUndefined({
+	// Cline reads no manifest for a project bundle; this OIAP target manifest
+	// records publisher metadata with the key names of the Cline SDK's Agent
+	// Plugins plugin.json (author {name,email,url}, repository, keywords), which
+	// has no displayName or logo
+	// (sdk/packages/core/src/extensions/agent-plugin/loader.ts, MANIFEST_FIELDS).
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
-		displayName: manifest.name,
+		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords:
+			manifest.keywords && manifest.keywords.length > 0
+				? manifest.keywords
+				: manifest.categories.length > 0
+					? manifest.categories
+					: undefined,
 		target: CLINE_TARGET,
 		rules: hasRuleOutput(ir) ? ".clinerules/" : undefined,
 		skills: hasSkillOutput(ir) ? ".cline/skills/" : undefined,
@@ -224,6 +245,10 @@ function renderTargetManifest(ir: PluginIr): RenderedFile {
 		mcp: hasMcpOutput(ir.tools) ? ".cline/mcp.json" : undefined,
 		policies: ir.policies.length > 0 ? ".oiap/policy.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CLINE_TARGET],
+	);
 
 	return jsonFile(
 		".oiap/cline-target.json",
@@ -295,14 +320,17 @@ function renderSkills(
 			slug(skill.name || skill.id, skill.id),
 			usedSkillSlugs,
 		);
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			renderSkillBody(skill, instruction),
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					...targetMetadata(skill.targetMetadata),
+				},
+				renderSkillBody(skill, instruction),
+			);
 
 		return [
 			textFile(
@@ -364,6 +392,10 @@ function renderAgents(
 	return agents.map((agent) => {
 		const instruction = findInstruction(instructions, agent.instructions.id);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
+		// `hostInstructions: "exclude"` needs no key: a configured agent's system
+		// prompt is its body with no .clinerules attached
+		// (sdk/packages/core/src/extensions/tools/team/subagent-prompts.ts,
+		// buildSubAgentSystemPrompt).
 		const frontmatter = omitUndefined({
 			name: agentSlug,
 			description: agent.description,
@@ -1038,6 +1070,8 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		});
 	}
 
+	degraded.push(...skillInvocationDegradations(ir.skills));
+
 	if (hasMcpGaps(ir.tools)) {
 		degraded.push({
 			capability: { kind: "mcp", target: CLINE_TARGET },
@@ -1055,6 +1089,41 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: ".oiap/policy.json evidence",
 			reason:
 				"Cline policy and approval controls are not equivalent to every OIAP policy field and require user review.",
+		});
+	}
+
+	return degraded;
+}
+
+/**
+ * Cline skills document only `name` and `description`, and every enabled skill
+ * is both model-activated and listed as a slash command
+ * (https://docs.cline.bot/features/skills). The SDK parser reads no other
+ * invocation key (sdk/packages/core/src/extensions/config/
+ * user-instruction-config-loader.ts, parseSkillConfigFromMarkdown).
+ */
+function skillInvocationDegradations(
+	skills: SkillAsset[],
+): CapabilityDegradation[] {
+	const degraded: CapabilityDegradation[] = [];
+	const userOnly = skills.filter((skill) => skill.modelInvocable === false);
+	const modelOnly = skills.filter((skill) => skill.userInvocable === false);
+
+	if (userOnly.length > 0) {
+		degraded.push({
+			capability: { kind: "skills", target: CLINE_TARGET },
+			from: "modelInvocable: false",
+			to: "skill Cline may activate on its own",
+			reason: `Cline has no setting that keeps the model from activating a skill, so ${userOnly.map((skill) => skill.id).join(", ")} can run without the user asking.`,
+		});
+	}
+
+	if (modelOnly.length > 0) {
+		degraded.push({
+			capability: { kind: "skills", target: CLINE_TARGET },
+			from: "userInvocable: false",
+			to: "skill listed as a slash command",
+			reason: `Cline lists every enabled skill as a slash command, so ${modelOnly.map((skill) => skill.id).join(", ")} stay visible to the user.`,
 		});
 	}
 

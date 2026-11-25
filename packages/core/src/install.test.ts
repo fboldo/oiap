@@ -4,8 +4,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HostProfile, PluginDefinition, TargetBundle } from "./index";
-import { type InstallPluginTarget, installPlugin } from "./install";
+import type { HostProfile, PluginDefinition, TargetBundle } from "./index.ts";
+import { type InstallPluginTarget, installPlugin } from "./install.ts";
 
 describe("installPlugin", () => {
 	test("exports and writes a target bundle for a plugin declaration", async () => {

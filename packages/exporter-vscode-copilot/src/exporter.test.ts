@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportVsCodeCopilot } from "./exporter";
+import { exportVsCodeCopilot } from "./exporter.ts";
 
 const target = "vscode-copilot-chat";
 
@@ -125,6 +125,121 @@ describe("exportVsCodeCopilot", () => {
 		expect(bundle.report.status).toBe("degraded");
 	});
 
+	test("maps manifest author, repository and keywords; skips displayName and logo", () => {
+		const bundle = exportVsCodeCopilot({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Display",
+				keywords: ["review", "docs"],
+				categories: ["productivity"],
+				logo: "assets/logo.svg",
+				author: { name: "Ada", url: "https://example.com/ada" },
+				repository: "https://github.com/example/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+		});
+		const manifest = readJson<Record<string, unknown>>(bundle, "plugin.json");
+
+		expect(manifest.author).toEqual({
+			name: "Ada",
+			url: "https://example.com/ada",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle-files");
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.category).toBe("productivity");
+		expect(manifest).not.toHaveProperty("displayName");
+		expect(manifest).not.toHaveProperty("logo");
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+	});
+
+	test("maps skill invocation flags with targetMetadata winning", () => {
+		const skill = first<(typeof bundleFilesPlugin.skills)[number]>(
+			bundleFilesPlugin.skills,
+			"skill",
+		);
+		const bundle = exportVsCodeCopilot({
+			...bundleFilesPlugin,
+			agents: [],
+			skills: [
+				{ ...skill, id: "user-only", modelInvocable: false },
+				{ ...skill, id: "model-only", userInvocable: false, files: [] },
+				{
+					...skill,
+					id: "overridden",
+					userInvocable: false,
+					modelInvocable: true,
+					files: [],
+					targetMetadata: { [target]: { "user-invocable": true } },
+				},
+			],
+		});
+
+		const userOnly = readText(bundle, "skills/user-only/SKILL.md");
+		expect(userOnly).toContain("disable-model-invocation: true");
+		expect(userOnly).not.toContain("user-invocable");
+
+		const modelOnly = readText(bundle, "skills/model-only/SKILL.md");
+		expect(modelOnly).toContain("user-invocable: false");
+		expect(modelOnly).not.toContain("disable-model-invocation");
+
+		const overridden = readText(bundle, "skills/overridden/SKILL.md");
+		expect(overridden).toContain("user-invocable: true");
+		expect(overridden).not.toContain("disable-model-invocation");
+		expect(
+			bundle.report.degradedCapabilities.map(
+				(degradation) => degradation.capability.kind,
+			),
+		).not.toContain("skills");
+	});
+
+	test("maps agent hostInstructions and degrades exclude", () => {
+		const agent = { ...bundleFilesAgent, targetMetadata: undefined };
+		const bundle = exportVsCodeCopilot({
+			...bundleFilesPlugin,
+			instructions: bundleFilesPlugin.instructions.map((instruction) => ({
+				...instruction,
+				body: "No tokens.",
+			})),
+			agents: [
+				{ ...agent, id: "isolated", hostInstructions: "exclude" },
+				{ ...agent, id: "repo-aware", hostInstructions: "include" },
+				{ ...agent, id: "plain" },
+			],
+		});
+		const hostInstructionDegradation = bundle.report.degradedCapabilities.find(
+			(degradation) => degradation.from === "agent-without-host-instructions",
+		);
+
+		for (const agentFile of [
+			"agents/isolated.agent.md",
+			"agents/repo-aware.agent.md",
+			"agents/plain.agent.md",
+		]) {
+			expect(readText(bundle, agentFile)).not.toContain(
+				"include-custom-instructions",
+			);
+		}
+		expect(hostInstructionDegradation?.to).toBe("agent-with-host-instructions");
+		expect(hostInstructionDegradation?.capability.kind).toBe("agents");
+		expect(hostInstructionDegradation?.reason).toContain("1 agent(s)");
+		expect(bundle.report.status).toBe("degraded");
+	});
+
+	test("does not degrade agents that include host instructions", () => {
+		const bundle = exportVsCodeCopilot({
+			...bundleFilesPlugin,
+			agents: [{ ...bundleFilesAgent, hostInstructions: "include" }],
+		});
+
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
 	test("keeps explicit agent tools over access", () => {
 		const bundle = exportVsCodeCopilot({
 			...bundleFilesPlugin,
@@ -151,6 +266,95 @@ describe("exportVsCodeCopilot", () => {
 		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
 			"duplicate-bundle-file",
 		);
+	});
+	test("drops primitives scoped to other hosts", () => {
+		const bundle = exportVsCodeCopilot({
+			...sampleVsCodePlugin,
+			instructions: [
+				...sampleVsCodePlugin.instructions,
+				{
+					id: "claude-only-body",
+					purpose: "workflow",
+					triggers: [],
+					body: "Claude only.",
+				},
+			],
+			skills: [
+				...sampleVsCodePlugin.skills,
+				{
+					id: "claude-only",
+					name: "Claude Only",
+					description: "Only for Claude Code.",
+					instructions: { id: "claude-only-body", kind: "instruction" },
+					targets: ["claude-code"],
+				},
+			],
+			agents: sampleVsCodePlugin.agents.map((agent) => ({
+				...agent,
+				targets: ["claude-code"],
+			})),
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).not.toContain("skills/claude-only/SKILL.md");
+		expect(paths.some((path) => path.startsWith("agents/"))).toBe(false);
+		expect(JSON.stringify(bundle.files)).not.toContain("claude-only");
+		expect(
+			bundle.report.mappedCapabilities.some(
+				(capability) => capability.kind === "agents",
+			),
+		).toBe(false);
+		expect(
+			readJson<VsCodePluginManifest>(bundle, "plugin.json").agents,
+		).toBeUndefined();
+	});
+
+	test("merges manifest targetMetadata into plugin.json", () => {
+		const bundle = exportVsCodeCopilot({
+			...sampleVsCodePlugin,
+			manifest: {
+				...sampleVsCodePlugin.manifest,
+				targetMetadata: {
+					[target]: { version: null, category: "devtools", extra: { a: 1 } },
+					"claude-code": { name: "not-for-vscode" },
+				},
+			},
+		});
+		const manifest = readJson<Record<string, unknown>>(bundle, "plugin.json");
+
+		expect("version" in manifest).toBe(false);
+		expect(manifest.category).toBe("devtools");
+		expect(manifest.extra).toEqual({ a: 1 });
+		expect(manifest.name).toBe("sample-vscode");
+	});
+
+	test("writes targetFiles at the plugin root", () => {
+		const bundle = exportVsCodeCopilot({
+			...sampleVsCodePlugin,
+			targetFiles: {
+				[target]: [
+					{
+						path: "scripts/check.sh",
+						content: "#!/bin/sh\necho ok\n",
+						mode: 0o755,
+					},
+				],
+				"claude-code": [{ path: "scripts/claude.sh", content: "claude" }],
+			},
+		});
+		const file = bundle.files.find(
+			(candidate) => candidate.path === "scripts/check.sh",
+		);
+
+		expect(file?.content).toBe("#!/bin/sh\necho ok\n");
+		expect(file?.mode).toBe(0o755);
+		expect(file?.source?.primitiveKind).toBe("target-file");
+		expect(
+			bundle.files.some((candidate) => candidate.path === "scripts/claude.sh"),
+		).toBe(false);
+		expect(
+			bundle.report.issues.filter((issue) => issue.severity === "error"),
+		).toEqual([]);
 	});
 });
 

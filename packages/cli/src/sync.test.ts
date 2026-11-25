@@ -17,7 +17,11 @@ import {
 	SYNC_LOCK_PATH,
 	selectSyncTargets,
 	syncPluginFile,
-} from "./sync";
+} from "./sync.ts";
+
+interface SyncLockShape {
+	files: Record<string, string>;
+}
 
 const manifest = {
 	id: "sample",
@@ -56,7 +60,7 @@ describe("planSync", () => {
 					bundle("gemini-cli", {
 						"gemini-extension.json": "{}",
 						"skills/a/SKILL.md": "A",
-						"commands/a.toml": "gemini command",
+						"agents/a.md": "gemini agent",
 						"README.md": "readme",
 						".oiap/bundle.json": "{}",
 					}),
@@ -66,7 +70,7 @@ describe("planSync", () => {
 					bundle("claude-code", {
 						".claude-plugin/plugin.json": "{}",
 						"skills/a/SKILL.md": "A",
-						"commands/a.md": "claude command",
+						"agents/a.md": "claude agent",
 					}),
 				],
 				[
@@ -94,7 +98,7 @@ describe("planSync", () => {
 			"claude-code": "plugins/claude-code",
 			codex: "",
 		});
-		expect(paths).toContain("plugins/claude-code/commands/a.md");
+		expect(paths).toContain("plugins/claude-code/agents/a.md");
 		expect(paths).toContain(".codex-plugin/plugin.json");
 		expect(paths).not.toContain("README.md");
 		expect(paths).not.toContain(".oiap/bundle.json");
@@ -145,10 +149,10 @@ describe("planSync", () => {
 					}),
 				],
 				[
-					"openclaw",
-					bundle("openclaw", {
-						"skills/a/SKILL.md": "openclaw",
-						".oiap/runtime/manifest.json": "openclaw",
+					"antigravity",
+					bundle("antigravity", {
+						"skills/a/SKILL.md": "antigravity",
+						".oiap/runtime/manifest.json": "antigravity",
 					}),
 				],
 			]),
@@ -156,10 +160,229 @@ describe("planSync", () => {
 		);
 
 		expect(plan.notes).toContain(
-			"openclaw uses the gemini-cli copy of 1 file(s) in skills/",
+			"antigravity uses the gemini-cli copy of 1 file(s) in skills/",
 		);
 		expect(plan.errors).toHaveLength(1);
 		expect(plan.errors[0]).toContain(".oiap/runtime/manifest.json");
+	});
+});
+
+describe("planSync catalogs", () => {
+	test("uses marketplace settings and per-host overrides", () => {
+		const plan = planSync(
+			{
+				manifest: {
+					...manifest,
+					author: { name: "Clerk" },
+					keywords: ["auth"],
+					marketplace: {
+						name: "sample-skills",
+						description: "Sample skills catalog.",
+						targetMetadata: {
+							"claude-code": { entry: { version: null } },
+						},
+					},
+				},
+			},
+			new Map([
+				[
+					"claude-code",
+					bundle("claude-code", { ".claude-plugin/plugin.json": "{}" }),
+				],
+			]),
+			"root",
+		);
+		const catalog = JSON.parse(
+			String(
+				plan.files.find(
+					(file) => file.path === ".claude-plugin/marketplace.json",
+				)?.content,
+			),
+		);
+
+		expect(catalog).toEqual({
+			name: "sample-skills",
+			owner: { name: "Clerk" },
+			metadata: { description: "Sample skills catalog." },
+			plugins: [
+				{
+					name: "sample",
+					source: "./",
+					description: "Sync fixture.",
+					author: { name: "Clerk" },
+					keywords: ["auth"],
+					category: "testing",
+				},
+			],
+		});
+	});
+});
+
+describe("planSync with Agent Plugins", () => {
+	test("keeps Codex at the root and serves Copilot through the root manifest", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"agent-plugins",
+					bundle("agent-plugins", {
+						"plugin.json":
+							'{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}',
+						"skills/a/SKILL.md": "A",
+					}),
+				],
+				[
+					"codex",
+					bundle("codex", {
+						".codex-plugin/plugin.json": "{}",
+						"skills/a/SKILL.md": "A",
+					}),
+				],
+			]),
+			"root",
+		);
+		const copilotCatalog = JSON.parse(
+			String(
+				plan.files.find(
+					(file) => file.path === ".github/plugin/marketplace.json",
+				)?.content,
+			),
+		);
+
+		expect(plan.placements.map((placement) => placement.directory)).toEqual([
+			"",
+			"",
+		]);
+		expect(copilotCatalog.plugins[0].source).toBe("./");
+	});
+});
+
+describe("planSync read patterns", () => {
+	test("keeps Claude at the root next to Gemini TOML commands", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"gemini-cli",
+					bundle("gemini-cli", { "commands/plan.toml": "gemini" }),
+				],
+				[
+					"claude-code",
+					bundle("claude-code", { ".claude-plugin/plugin.json": "{}" }),
+				],
+			]),
+			"root",
+		);
+
+		expect(plan.placements.map((placement) => placement.directory)).toEqual([
+			"",
+			"",
+		]);
+	});
+});
+
+describe("planSync shared files", () => {
+	test("lets a host share a file its manifest names", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"claude-code",
+					bundle("claude-code", {
+						".claude-plugin/plugin.json": "{}",
+						".mcp.json": '{"mcpServers":{}}',
+					}),
+				],
+				[
+					"cursor",
+					bundle("cursor", {
+						".cursor-plugin/plugin.json": '{"mcpServers":"./.mcp.json"}',
+					}),
+				],
+			]),
+			"root",
+		);
+
+		expect(plan.placements.map((placement) => placement.directory)).toEqual([
+			"",
+			"",
+		]);
+	});
+
+	test("leaves out Codex project-only files", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"codex",
+					bundle("codex", {
+						".codex-plugin/plugin.json": "{}",
+						"AGENTS.md": "rules",
+						".codex/agents/a.toml": "agent",
+					}),
+				],
+			]),
+			"root",
+		);
+		const paths = plan.files.map((file) => file.path);
+
+		expect(paths).not.toContain("AGENTS.md");
+		expect(paths).not.toContain(".codex/agents/a.toml");
+		expect(plan.notes.join("\n")).toContain("project-only");
+	});
+});
+
+describe("planSync with author files", () => {
+	test("moves a host whose root files would overwrite the author's", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"openclaw",
+					bundle("openclaw", {
+						"openclaw.plugin.json": "{}",
+						"package.json": "{}",
+					}),
+				],
+			]),
+			"root",
+			{
+				authored: new Map([["package.json", Buffer.from('{"name":"author"}')]]),
+			},
+		);
+
+		expect(plan.placements[0]?.directory).toBe("plugins/openclaw");
+		expect(plan.files.map((file) => file.path)).toContain(
+			"plugins/openclaw/package.json",
+		);
+	});
+});
+
+describe("planSync with identical author files", () => {
+	test("shares them, keeps the host at the root, and leaves them out of the output", () => {
+		const plan = planSync(
+			{ manifest },
+			new Map([
+				[
+					"claude-code",
+					bundle("claude-code", {
+						".claude-plugin/plugin.json": "{}",
+						"skills/a/SKILL.md": "Authored",
+					}),
+				],
+			]),
+			"root",
+			{ authored: new Map([["skills/a/SKILL.md", Buffer.from("Authored")]]) },
+		);
+		const lock = JSON.parse(
+			String(plan.files.find((file) => file.path === SYNC_LOCK_PATH)?.content),
+		);
+
+		expect(plan.placements[0]?.directory).toBe("");
+		expect(plan.files.map((file) => file.path)).not.toContain(
+			"skills/a/SKILL.md",
+		);
+		expect(Object.keys(lock.files)).not.toContain("skills/a/SKILL.md");
 	});
 });
 
@@ -221,6 +444,242 @@ describe("syncPluginFile", () => {
 		return { repo, pluginFile };
 	}
 
+	test("uses the repository's own skills in place", async () => {
+		// The repository lives inside the workspace so its plugin file can import @oiap/core.
+		const repo = mkdtempSync(
+			join(resolve(import.meta.dir, ".."), ".sync-in-place-"),
+		);
+		directories.push(repo);
+		const skillFile = [
+			"---",
+			"name: review",
+			"description: Review a document.",
+			"license: MIT",
+			"metadata:",
+			"  owner: docs-team",
+			"---",
+			"",
+			"Read references/guide.md, then review.",
+			"",
+		].join("\n");
+		mkdirSync(join(repo, "skills", "review", "references"), {
+			recursive: true,
+		});
+		writeFileSync(join(repo, "skills", "review", "SKILL.md"), skillFile);
+		writeFileSync(
+			join(repo, "skills", "review", "references", "guide.md"),
+			"Guide",
+		);
+		writeFileSync(
+			join(repo, "oiap.plugin.ts"),
+			`import { definePlugin, skillsFrom } from "@oiap/core";
+
+export default definePlugin({
+	manifest: ${JSON.stringify({
+		...manifest,
+		supportedTargets: ["gemini-cli", "claude-code", "codex", "cursor"],
+	})},
+	skills: skillsFrom("skills"),
+});
+`,
+		);
+		const options = {
+			inputPath: join(repo, "oiap.plugin.ts"),
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		const first = await syncPluginFile({ ...options, check: false });
+		const lock = JSON.parse(
+			readFileSync(join(repo, SYNC_LOCK_PATH), "utf8"),
+		) as SyncLockShape;
+
+		expect(
+			Object.fromEntries(
+				first.plan.placements.map((placement) => [
+					placement.target,
+					placement.directory,
+				]),
+			),
+		).toEqual({
+			"gemini-cli": "",
+			"claude-code": "",
+			codex: "",
+			cursor: "",
+		});
+		expect(
+			readFileSync(join(repo, "skills", "review", "SKILL.md"), "utf8"),
+		).toBe(skillFile);
+		expect(first.written).not.toContain("skills/review/SKILL.md");
+		expect(
+			Object.keys(lock.files).some((path) => path.startsWith("skills/")),
+		).toBe(false);
+
+		const second = await syncPluginFile({ ...options, check: true });
+		expect(second.differences).toEqual([]);
+	});
+
+	test("writes JSON with the repository's indentation", async () => {
+		const { repo, pluginFile } = fixture();
+		writeFileSync(join(repo, "package.json"), '{\n  "name": "x"\n}\n');
+
+		await syncPluginFile({
+			inputPath: pluginFile,
+			repoDir: repo,
+			layout: "root",
+			check: false,
+		});
+
+		expect(
+			readFileSync(join(repo, ".claude-plugin", "plugin.json"), "utf8"),
+		).toContain('\n  "name": "sample"');
+		expect(
+			readFileSync(join(repo, ".claude-plugin", "marketplace.json"), "utf8"),
+		).toContain('\n  "name": "sample"');
+	});
+
+	test("never reindents JSON copied as written", async () => {
+		const repo = mkdtempSync(
+			join(resolve(import.meta.dir, ".."), ".sync-verbatim-"),
+		);
+		directories.push(repo);
+		const template = '{ "compilerOptions": { "lib": ["dom", "es2022"] } }\n';
+		mkdirSync(join(repo, "skills", "app", "templates"), { recursive: true });
+		writeFileSync(
+			join(repo, "skills", "app", "SKILL.md"),
+			"---\nname: app\ndescription: Build an app.\n---\n\nBuild it.\n",
+		);
+		writeFileSync(
+			join(repo, "skills", "app", "templates", "tsconfig.json"),
+			template,
+		);
+		writeFileSync(join(repo, "package.json"), '{\n  "name": "x"\n}\n');
+		writeFileSync(
+			join(repo, "oiap.plugin.ts"),
+			`import { definePlugin, skillsFrom } from "@oiap/core";
+export default definePlugin({
+	manifest: ${JSON.stringify({ ...manifest, supportedTargets: ["claude-code", "codex"] })},
+	skills: skillsFrom("skills"),
+});
+`,
+		);
+		const options = {
+			inputPath: join(repo, "oiap.plugin.ts"),
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		const first = await syncPluginFile({ ...options, check: false });
+
+		expect(
+			first.plan.placements.map((placement) => placement.directory),
+		).toEqual(["", ""]);
+		expect(
+			readFileSync(
+				join(repo, "skills", "app", "templates", "tsconfig.json"),
+				"utf8",
+			),
+		).toBe(template);
+		expect(
+			(await syncPluginFile({ ...options, check: true })).differences,
+		).toEqual([]);
+	});
+
+	test("adopts hand-written manifests in place when converting a repository", async () => {
+		const { repo, pluginFile } = fixture();
+		mkdirSync(join(repo, ".claude-plugin"), { recursive: true });
+		writeFileSync(
+			join(repo, ".claude-plugin", "plugin.json"),
+			'{\n  "name": "sample",\n  "version": "0.9.0"\n}\n',
+		);
+		const options = {
+			inputPath: pluginFile,
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		await expect(
+			syncPluginFile({ ...options, check: false }),
+		).resolves.toMatchObject({
+			plan: {
+				placements: [
+					{ target: "claude-code", directory: "plugins/claude-code" },
+					expect.anything(),
+				],
+			},
+		});
+		rmSync(join(repo, "plugins"), { recursive: true, force: true });
+		rmSync(join(repo, ".oiap"), { recursive: true, force: true });
+		for (const path of [
+			".codex-plugin",
+			".agents",
+			"skills",
+			".claude-plugin/marketplace.json",
+		]) {
+			rmSync(join(repo, path), { recursive: true, force: true });
+		}
+
+		mkdirSync(join(repo, ".agents", "plugins"), { recursive: true });
+		writeFileSync(
+			join(repo, ".agents", "plugins", "marketplace.json"),
+			'{\n  "name": "hand-written"\n}\n',
+		);
+
+		const adopted = await syncPluginFile({
+			...options,
+			check: false,
+			adopt: true,
+		});
+		const manifestText = readFileSync(
+			join(repo, ".claude-plugin", "plugin.json"),
+			"utf8",
+		);
+
+		expect(adopted.plan.placements[0]).toMatchObject({
+			target: "claude-code",
+			directory: "",
+		});
+		expect(manifestText).toContain('\n  "version": "1.0.0"');
+		expect(
+			readFileSync(
+				join(repo, ".agents", "plugins", "marketplace.json"),
+				"utf8",
+			),
+		).toContain('\n  "name": "sample"');
+		expect(
+			readFileSync(join(repo, ".codex-plugin", "plugin.json"), "utf8"),
+		).toContain('\n  "name": "sample"');
+		expect(
+			(await syncPluginFile({ ...options, check: true })).differences,
+		).toEqual([]);
+	});
+
+	test("keeps a stale file the author changed", async () => {
+		const { repo, pluginFile } = fixture();
+		const options = {
+			inputPath: pluginFile,
+			repoDir: repo,
+			layout: "root" as const,
+		};
+
+		await syncPluginFile({ ...options, check: false });
+		writeFileSync(
+			join(repo, ".codex-plugin", "plugin.json"),
+			'{"edited":true}\n',
+		);
+		const narrowed = await syncPluginFile({
+			...options,
+			targets: ["claude-code"],
+			check: false,
+		});
+
+		expect(narrowed.removed).not.toContain(".codex-plugin/plugin.json");
+		expect(existsSync(join(repo, ".codex-plugin", "plugin.json"))).toBe(true);
+		expect(narrowed.plan.notes.join("\n")).toContain(
+			"Kept .codex-plugin/plugin.json",
+		);
+	});
+
 	test("writes, checks, removes stale files and protects hand-written files", async () => {
 		const { repo, pluginFile } = fixture();
 		const options = {
@@ -231,15 +690,18 @@ describe("syncPluginFile", () => {
 
 		mkdirSync(join(repo, ".claude-plugin"), { recursive: true });
 		writeFileSync(join(repo, ".claude-plugin", "plugin.json"), "{}\n");
-		await expect(syncPluginFile({ ...options, check: false })).rejects.toThrow(
-			"previous sync did not write: .claude-plugin/plugin.json (claude-code)",
-		);
+		const moved = await syncPluginFile({ ...options, check: false });
+		expect(
+			moved.plan.placements.find(
+				(placement) => placement.target === "claude-code",
+			)?.directory,
+		).toBe("plugins/claude-code");
+		expect(
+			readFileSync(join(repo, ".claude-plugin", "plugin.json"), "utf8"),
+		).toBe("{}\n");
+		rmSync(join(repo, ".claude-plugin", "plugin.json"));
 
-		const written = await syncPluginFile({
-			...options,
-			check: false,
-			force: true,
-		});
+		const written = await syncPluginFile({ ...options, check: false });
 		expect(written.written).toContain(".claude-plugin/plugin.json");
 		expect(existsSync(join(repo, "skills", "review", "SKILL.md"))).toBe(true);
 

@@ -27,3 +27,7 @@ The generated `index.ts` registers OpenClaw hooks that call
 `.oiap/runtime/runner.mjs`. Portable function handlers are bundled into
 `.oiap/runtime/hooks.mjs`; tool handlers still use placeholders until OIAP tool
 runtime generation exists.
+
+`manifest.targetMetadata.openclaw` merges into `openclaw.plugin.json` (`null`
+removes a generated key); `package.json` is not changed. `targetFiles.openclaw`
+are copied as-is relative to the package root.

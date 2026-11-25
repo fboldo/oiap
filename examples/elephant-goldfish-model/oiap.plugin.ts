@@ -104,10 +104,8 @@ for (const directory of SKILLS) {
 		files: pluginFiles(new URL(`skills/${directory}/`, SOURCE), {
 			include: (path) => path !== "SKILL.md",
 		}),
-		targetMetadata: {
-			"claude-code": { "disable-model-invocation": true },
-			codex: { "disable-model-invocation": true },
-		},
+		// EGM skills run only when the user asks for them.
+		modelInvocable: false,
 	});
 }
 
@@ -127,6 +125,8 @@ for (const persona of PERSONAS) {
 		instructions: { id: `${name}-persona`, kind: "instruction" },
 		model: "inherit",
 		access: ORCHESTRATORS.has(persona) ? "read-write" : "read-only",
+		// Goldfish reviewers must start without the host's instruction files.
+		hostInstructions: ORCHESTRATORS.has(persona) ? "include" : "exclude",
 	});
 }
 
@@ -134,6 +134,10 @@ export default definePlugin({
 	manifest: {
 		id: "egm",
 		name: "Elephant-Goldfish Model",
+		displayName: "Elephant-Goldfish Model",
+		author: { name: "Google" },
+		repository: "https://github.com/google/elephant-goldfish-model",
+		keywords: ["spec-driven-development", "design-documents", "design-review"],
 		version: "0.1.1",
 		description:
 			"Develop ideas with context and review documents with fresh eyes.",

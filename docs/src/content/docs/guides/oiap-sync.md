@@ -38,13 +38,57 @@ npx oiap sync --target claude-code,codex
 Cline, Windsurf and OpenCode install into a project; ship them with
 [install-agent-plugin](/oiap/guides/install-agent-plugin/).
 
+## Use the skills you already have
+
+Most plugin repositories keep their skills in one folder that every host reads.
+Point OIAP at it instead of rewriting the skills:
+
+```ts
+import { definePlugin, skillsFrom } from "@oiap/core";
+
+export default definePlugin({
+	manifest: {
+		id: "my-skills",
+		name: "My Skills",
+		version: "1.2.0",
+		description: "Skills for my team.",
+		categories: ["productivity"],
+		supportedTargets: ["claude-code", "codex", "cursor", "gemini-cli"],
+	},
+	skills: skillsFrom("skills"),
+});
+```
+
+Each `skills/<name>/SKILL.md` stays exactly as you wrote it, frontmatter
+included. `oiap sync` writes only the host manifests and catalogs around it,
+never rewrites or deletes your skill files, and lets every host that reads the
+root `skills/` share them.
+
+## Adopt OIAP in an existing plugin repository
+
+If the repository already has hand-written host manifests and catalogs, write
+`oiap.plugin.ts`, then run the first sync with `--adopt`:
+
+```sh
+npx oiap sync --adopt
+```
+
+Sync takes over the files that sit where OIAP now generates host files
+(`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, catalogs, and so
+on) and rewrites them in place, keeping their JSON indentation, so the diff shows
+only real changes. Skills, resources and target files are never overwritten.
+Later syncs need no flag.
+
 ## Layout
 
-- Hosts that only install the repository root (Gemini CLI, Antigravity,
-  OpenClaw) go at the root and share files such as `skills/` when their copies
-  match.
-- Other hosts share the root when no host would load another host's files, and
-  move to `plugins/<target>/` otherwise. `--layout plugins` always uses
+- Hosts that only install the repository root (Gemini CLI, Antigravity, and
+  the Agent Plugins `plugin.json`) go at the root and share files such as
+  `skills/` when their copies match. When the `agent-plugins` target is on,
+  GitHub Copilot CLI and VS Code read its root `plugin.json`, so it serves them
+  and sync writes no separate Copilot plugin.
+- Other hosts share the root when no host would load another host's files and
+  none of their files would overwrite one you wrote, and move to
+  `plugins/<target>/` otherwise. `--layout plugins` always uses
   `plugins/<target>/` for them.
 
 ```sh
@@ -66,10 +110,10 @@ host manifest stays in lockstep.
 
 ## Caveats
 
-- **OpenClaw** needs its own `package.json` and entry file at the repository
-  root. If your repository already has a `package.json`, sync stops rather than
-  overwrite it; leave OpenClaw out with `--target`, or publish it from a separate
-  repository.
+- **OpenClaw** needs its own `package.json` and entry file. When your
+  repository already has a `package.json`, OpenClaw moves to
+  `plugins/openclaw/`; its `git:` install only reads the repository root, so
+  users install it from a checkout or a published package instead.
 - **Gemini CLI** installs the latest GitHub Release instead of the default
   branch when a repository has releases. Keep releases off a plugin repository
   that targets Gemini CLI, or attach the full tree to them.

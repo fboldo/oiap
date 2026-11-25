@@ -27,8 +27,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -37,7 +39,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { GEMINI_CLI_TARGET, geminiCliProfile } from "./profile";
+import { GEMINI_CLI_TARGET, geminiCliProfile } from "./profile.ts";
 
 export type GeminiCliPluginInput = PluginDefinition | PluginIr;
 
@@ -125,12 +127,12 @@ export function exportGeminiCli(plugin: GeminiCliPluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: GeminiCliPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		GEMINI_CLI_TARGET,
+	);
 }
 
 function isPluginIr(plugin: GeminiCliPluginInput): plugin is PluginIr {
@@ -169,6 +171,13 @@ function renderGeminiCliFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Hand-written host files (hook scripts, extra commands, ...) at the
+		// extension root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[GEMINI_CLI_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Gemini CLI only substitutes ${extensionPath} in gemini-extension.json and
@@ -216,15 +225,24 @@ function renderExtensionManifest(
 	const mcpServers = renderMcpServers(ir.tools);
 	const excludeTools = collectExcludedTools(ir.policies);
 	const settings = collectGeminiSettings(ir);
-	const content = omitUndefined({
-		name: slug(manifest.id, "oiap-plugin"),
-		version: manifest.version,
-		description: manifest.description,
-		mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
-		contextFileName: contextFileNameValue(contextPaths),
-		excludeTools: excludeTools.length > 0 ? excludeTools : undefined,
-		settings: settings.length > 0 ? settings : undefined,
-	});
+	// gemini-extension.json has no displayName, keywords, logo, author or
+	// repository keys (ExtensionConfig is name, version, description,
+	// mcpServers, contextFileName, excludeTools, settings, themes, plan,
+	// migratedTo), so those manifest fields are not emitted.
+	// https://github.com/google-gemini/gemini-cli/blob/main/docs/extensions/reference.md
+	// https://github.com/google-gemini/gemini-cli/blob/main/packages/cli/src/config/extension.ts
+	const content = mergeTargetMetadata(
+		omitUndefined({
+			name: slug(manifest.id, "oiap-plugin"),
+			version: manifest.version,
+			description: manifest.description,
+			mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
+			contextFileName: contextFileNameValue(contextPaths),
+			excludeTools: excludeTools.length > 0 ? excludeTools : undefined,
+			settings: settings.length > 0 ? settings : undefined,
+		}),
+		manifest.targetMetadata?.[GEMINI_CLI_TARGET],
+	);
 
 	return jsonFile(
 		"gemini-extension.json",
@@ -314,14 +332,17 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -379,6 +400,16 @@ function renderAgents(
 	return agents.map((agent) => {
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
+
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(
+				agentPath(agentSlug),
+				agent.source.content,
+				sourceRef(agent.id, "agent"),
+			);
+		}
+
 		const body = [
 			agent.name === agentSlug ? undefined : `# ${agent.name}`,
 			instruction
@@ -470,8 +501,11 @@ function renderHooksConfig(hooks: HookDefinition[]): RenderedFile {
 	const groupedHooks: Record<string, unknown[]> = {};
 	const extensionPath = "$" + "{extensionPath}";
 	const pathSeparator = "$" + "{/}";
-	const runnerPath = `${extensionPath}${pathSeparator}.oiap${pathSeparator}runtime${pathSeparator}runner.mjs`;
-	const manifestPath = `${extensionPath}${pathSeparator}.oiap${pathSeparator}runtime${pathSeparator}manifest.json`;
+	const runtimeRoot = [extensionPath, ...HOOK_RUNTIME_ROOT.split("/")].join(
+		pathSeparator,
+	);
+	const runnerPath = `${runtimeRoot}${pathSeparator}runner.mjs`;
+	const manifestPath = `${runtimeRoot}${pathSeparator}manifest.json`;
 
 	for (const hook of hooks) {
 		const event = toGeminiHookEvent(hook.event);
@@ -542,6 +576,7 @@ function renderHookRuntime(
 		target: GEMINI_CLI_TARGET,
 		hooks,
 		targetEvent: (hook) => toGeminiHookEvent(hook.event),
+		runtimeRoot: HOOK_RUNTIME_ROOT,
 	}).files;
 }
 
@@ -651,6 +686,11 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 }
 
 const RESOURCE_ROOT = "";
+/**
+ * Gemini CLI and Antigravity both install from the repository root, so each
+ * keeps its hook runtime in its own directory and `oiap sync` can place both.
+ */
+const HOOK_RUNTIME_ROOT = `.oiap/runtime/${GEMINI_CLI_TARGET}`;
 
 const BUNDLE_FILE_SUPPORT = {
 	target: GEMINI_CLI_TARGET,
@@ -727,6 +767,26 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
 	];
 
+	degradations.push(...skillInvocationDegradations(ir.skills));
+
+	// The local agent frontmatter schema is strict (name, description,
+	// display_name, kind, tools, mcp_servers, model, temperature, max_turns,
+	// timeout_mins) and has no host-instructions switch.
+	// https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md
+	// https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/agents/agentLoader.ts
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (isolatedAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: GEMINI_CLI_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `Gemini CLI sub-agent frontmatter has no key to leave out GEMINI.md context, so ${isolatedAgents.length} agent(s) (${isolatedAgents.map((agent) => agent.id).join(", ")}) may still see project and user instructions.`,
+		});
+	}
+
 	if (ir.agents.length > 0) {
 		degradations.push({
 			capability: { kind: "agents", target: GEMINI_CLI_TARGET },
@@ -802,6 +862,42 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: "runtime-module-manifest",
 			reason:
 				"Runtime modules are recorded but not generated by this exporter yet.",
+		});
+	}
+
+	return degradations;
+}
+
+/**
+ * Gemini CLI reads only `name` and `description` from SKILL.md and turns
+ * every enabled skill into both a model-visible skill and a `/<name>` slash
+ * command, so neither invocation control can be expressed.
+ * https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/skills.md
+ * https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/skills/skillLoader.ts
+ * https://github.com/google-gemini/gemini-cli/blob/main/packages/cli/src/services/SkillCommandLoader.ts
+ */
+function skillInvocationDegradations(
+	skills: SkillAsset[],
+): CapabilityDegradation[] {
+	const degradations: CapabilityDegradation[] = [];
+	const userOnly = skills.filter((skill) => skill.modelInvocable === false);
+	const modelOnly = skills.filter((skill) => skill.userInvocable === false);
+
+	if (userOnly.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: GEMINI_CLI_TARGET },
+			from: "user-only-skill",
+			to: "model-and-user-skill",
+			reason: `Gemini CLI has no SKILL.md key to stop the model activating a skill, so ${userOnly.length} user-only skill(s) (${userOnly.map((skill) => skill.id).join(", ")}) can also be activated by the model.`,
+		});
+	}
+
+	if (modelOnly.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: GEMINI_CLI_TARGET },
+			from: "model-only-skill",
+			to: "model-and-user-skill",
+			reason: `Gemini CLI lists every skill as a slash command, so ${modelOnly.length} model-only skill(s) (${modelOnly.map((skill) => skill.id).join(", ")}) are also visible to the user.`,
 		});
 	}
 

@@ -17,6 +17,9 @@
 			"@oiap/cli": ["./packages/cli/src/index.ts"],
 			"@oiap/core": ["./packages/core/src/index.ts"],
 			"@oiap/runtime": ["./packages/runtime/src/index.ts"],
+			"@oiap/exporter-agent-plugins": [
+				"./packages/exporter-agent-plugins/src/index.ts"
+			],
 			"@oiap/exporter-antigravity": [
 				"./packages/exporter-antigravity/src/index.ts"
 			],

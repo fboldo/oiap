@@ -6,8 +6,8 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { HookDefinition, RenderedFile } from "@oiap/core";
-import { renderHookRuntimeFiles } from "./index";
-import { renderRunnerSource } from "./runner-source";
+import { renderHookRuntimeFiles } from "./index.ts";
+import { renderRunnerSource } from "./runner-source.ts";
 
 describe("renderRunnerSource", () => {
 	test("reads the bundled Bun runner artifact", async () => {

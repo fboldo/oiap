@@ -27,12 +27,15 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json",
 		"check": "bun run typecheck",
 		"test": "bun test src",
 		"typecheck": "tsc -p tsconfig.json --noEmit"
 	},
 	"peerDependencies": {
 		"typescript": "^5"
+	},
+	"dependencies": {
+		"yaml": "^2.9.1"
 	}
 }

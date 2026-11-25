@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportGeminiCli } from "./exporter";
+import { exportGeminiCli } from "./exporter.ts";
 
 describe("exportGeminiCli", () => {
 	test("renders a Gemini CLI extension bundle", () => {
@@ -16,9 +16,9 @@ describe("exportGeminiCli", () => {
 		expect(paths).toContain("commands/repo/status.toml");
 		expect(paths).toContain("skills/audit-repo/SKILL.md");
 		expect(paths).toContain("hooks/hooks.json");
-		expect(paths).toContain(".oiap/runtime/runner.mjs");
-		expect(paths).toContain(".oiap/runtime/hooks.mjs");
-		expect(paths).toContain(".oiap/runtime/manifest.json");
+		expect(paths).toContain(".oiap/runtime/gemini-cli/runner.mjs");
+		expect(paths).toContain(".oiap/runtime/gemini-cli/hooks.mjs");
+		expect(paths).toContain(".oiap/runtime/gemini-cli/manifest.json");
 		expect(paths).toContain("GEMINI.md");
 		expect(paths).toContain("agents/reviewer.md");
 		expect(paths).toContain("policies/oiap-policy.toml");
@@ -74,14 +74,14 @@ describe("exportGeminiCli", () => {
 
 		expect(beforeTool.matcher).toBe("write_file");
 		expect(beforeToolCommand.command).toBe(
-			`node "${extensionPath}${pathSeparator}.oiap${pathSeparator}runtime${pathSeparator}runner.mjs" run-hook --manifest "${extensionPath}${pathSeparator}.oiap${pathSeparator}runtime${pathSeparator}manifest.json" --target "gemini-cli" --event "before_tool" --hook "pre-tool"`,
+			`node "${extensionPath}${pathSeparator}.oiap${pathSeparator}runtime${pathSeparator}gemini-cli${pathSeparator}runner.mjs" run-hook --manifest "${extensionPath}${pathSeparator}.oiap${pathSeparator}runtime${pathSeparator}gemini-cli${pathSeparator}manifest.json" --target "gemini-cli" --event "before_tool" --hook "pre-tool"`,
 		);
 		expect(beforeToolCommand.timeout).toBe(2500);
 		expect(hooks.hooks.PermissionRequest).toBeUndefined();
 
 		const runtimeManifest = readJson<RuntimeManifest>(
 			bundle,
-			".oiap/runtime/manifest.json",
+			".oiap/runtime/gemini-cli/manifest.json",
 		);
 		const runtimeHook = runtimeManifest.hooks["pre-tool"];
 		expect(runtimeHook?.event).toBe("before_tool");
@@ -115,6 +115,126 @@ describe("exportGeminiCli", () => {
 		expect(bundle.report.status).toBe("degraded");
 		expect(degradations).toContain("plugin-root-variable");
 		expect(degradations).not.toContain("read-only-agent");
+	});
+
+	test("degrades invocation controls and host-instruction isolation", () => {
+		const skill = first(bundleFilesPlugin.skills, "skill");
+		const agent = first(bundleFilesPlugin.agents, "agent");
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Plugin",
+				keywords: ["review"],
+				logo: "assets/logo.svg",
+				author: { name: "Acme" },
+				repository: "https://github.com/acme/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+			skills: [
+				{ ...skill, modelInvocable: false },
+				{ ...skill, id: "hidden", name: "hidden", userInvocable: false },
+			],
+			agents: [{ ...agent, hostInstructions: "exclude" }],
+		});
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => [degradation.capability.kind, degradation.from],
+		);
+		const manifest = readJson(bundle, "gemini-extension.json");
+
+		expect(degradations).toContainEqual(["skills", "user-only-skill"]);
+		expect(degradations).toContainEqual(["skills", "model-only-skill"]);
+		expect(degradations).toContainEqual([
+			"agents",
+			"agent-without-host-instructions",
+		]);
+		expect(Object.keys(manifest).sort()).toEqual([
+			"description",
+			"name",
+			"version",
+		]);
+		expect(readText(bundle, "skills/review/SKILL.md")).not.toContain(
+			"disable-model-invocation",
+		);
+	});
+
+	test("does not degrade invocation controls left at their defaults", () => {
+		const degradations = exportGeminiCli(
+			bundleFilesPlugin,
+		).report.degradedCapabilities.map((degradation) => degradation.from);
+
+		expect(degradations).not.toContain("user-only-skill");
+		expect(degradations).not.toContain("model-only-skill");
+		expect(degradations).not.toContain("agent-without-host-instructions");
+	});
+
+	test("drops primitives limited to other targets", () => {
+		const skill = first(bundleFilesPlugin.skills, "skill");
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			skills: [
+				skill,
+				{
+					...skill,
+					id: "claude-only",
+					name: "claude-only",
+					targets: ["claude-code"],
+				},
+			],
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain("skills/review/SKILL.md");
+		expect(paths.some((path) => path.includes("claude-only"))).toBe(false);
+		expect(JSON.stringify(bundle.report)).not.toContain("claude-only");
+	});
+
+	test("merges manifest targetMetadata and removes null fields", () => {
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				targetMetadata: {
+					"gemini-cli": { version: null, plan: { directory: "plans" } },
+					"claude-code": { description: "Not for Gemini." },
+				},
+			},
+		});
+		const manifest = readJson(bundle, "gemini-extension.json");
+
+		expect(manifest.version).toBeUndefined();
+		expect(manifest.plan).toEqual({ directory: "plans" });
+		expect(manifest.description).toBe(
+			"Skill files, resources and path tokens.",
+		);
+	});
+
+	test("emits target files at the extension root", () => {
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			targetFiles: {
+				"gemini-cli": [{ path: "hooks/check.sh", content: "#!/bin/sh\n" }],
+				"claude-code": [{ path: "hooks/claude.sh", content: "#!/bin/sh\n" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, "hooks/check.sh")).toBe("#!/bin/sh\n");
+		expect(paths).not.toContain("hooks/claude.sh");
+	});
+
+	test("emits an in-place agent file unchanged", () => {
+		const agent = first(bundleFilesPlugin.agents, "agent");
+		const content = "---\nname: critic\ncustom: kept\n---\n\nAs written.\n";
+		const bundle = exportGeminiCli({
+			...bundleFilesPlugin,
+			agents: [{ ...agent, source: { file: "agents/critic.md", content } }],
+		});
+
+		expect(readText(bundle, "agents/critic.md")).toBe(content);
 	});
 
 	test("reports duplicate bundle files", () => {

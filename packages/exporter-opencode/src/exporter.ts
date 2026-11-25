@@ -28,8 +28,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -40,9 +42,9 @@ import {
 import type {
 	OpenCodeHookBridgeManifest,
 	OpenCodeHookDescriptor,
-} from "./hook-plugin-runtime";
-import { renderHookPluginSource } from "./hook-plugin-source";
-import { OPENCODE_TARGET, openCodeProfile } from "./profile";
+} from "./hook-plugin-runtime.ts";
+import { renderHookPluginSource } from "./hook-plugin-source.ts";
+import { OPENCODE_TARGET, openCodeProfile } from "./profile.ts";
 
 export type OpenCodePluginInput = PluginDefinition | PluginIr;
 
@@ -68,7 +70,9 @@ type OpenCodePermissionConfig = Record<
 export const openCodeExporter = defineExporter({
 	target: OPENCODE_TARGET,
 	profile: openCodeProfile,
-	lower(ir: PluginIr): LoweredTargetGraph {
+	lower(input: PluginIr): LoweredTargetGraph {
+		// Primitives limited to other hosts never reach files or the report.
+		const ir = scopeToTarget(input, OPENCODE_TARGET);
 		const files = renderOpenCodeFiles(ir);
 		const report = createExportReport(ir);
 
@@ -123,11 +127,10 @@ export function exportOpenCode(plugin: OpenCodePluginInput): TargetBundle {
 }
 
 function normalizePluginInput(plugin: OpenCodePluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		OPENCODE_TARGET,
+	);
 }
 
 function isPluginIr(plugin: OpenCodePluginInput): plugin is PluginIr {
@@ -171,6 +174,13 @@ function renderOpenCodeFiles(ir: PluginIr): RenderedFile[] {
 			resourceRoot,
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Author files for OpenCode (plugins, command files, ...) land at the
+		// bundle root, next to opencode.json and .opencode/.
+		...renderPluginFiles(
+			ir.targetFiles?.[OPENCODE_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	// OpenCode has no plugin root variable in agent, command or skill text, so
 	// bundle paths are written relative to the file that references them.
@@ -206,15 +216,21 @@ function renderOpenCodeConfig(
 	ir: PluginIr,
 	instructionFiles: RenderedFile[],
 ): RenderedFile {
-	const config = omitUndefined({
-		$schema: "https://opencode.ai/config.json",
-		instructions:
-			instructionFiles.length > 0
-				? instructionFiles.map((file) => file.path)
-				: undefined,
-		mcp: renderMcpConfig(ir.tools),
-		permission: renderPermissionConfig(ir.policies),
-	});
+	// opencode.json is project config, not a plugin manifest: it has no
+	// displayName, keywords, logo, author or repository keys
+	// (https://opencode.ai/config.json), so those manifest fields are not emitted.
+	const config = mergeTargetMetadata(
+		omitUndefined({
+			$schema: "https://opencode.ai/config.json",
+			instructions:
+				instructionFiles.length > 0
+					? instructionFiles.map((file) => file.path)
+					: undefined,
+			mcp: renderMcpConfig(ir.tools),
+			permission: renderPermissionConfig(ir.policies),
+		}),
+		getManifest(ir).targetMetadata?.[OPENCODE_TARGET],
+	);
 
 	return jsonFile(
 		"opencode.json",
@@ -288,15 +304,23 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				compatibility: "opencode",
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					compatibility: "opencode",
+					// "Set to true for the same effect as opencode/autoinvoke: false":
+					// the skill leaves the model's list and stays loadable as @skill-id.
+					// https://opencode.ai/docs/skills/
+					"disable-model-invocation":
+						skill.modelInvocable === false ? true : undefined,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -378,6 +402,15 @@ function renderAgents(
 	agentPaths: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
+		const path =
+			agentPaths.get(agent.id) ??
+			`.opencode/agents/${slug(agent.id, "agent")}.md`;
+
+		// An agent file already in the repository (agentsFrom) is emitted as is.
+		if (agent.source) {
+			return textFile(path, agent.source.content, sourceRef(agent.id, "agent"));
+		}
+
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const body = [
 			instruction
@@ -398,12 +431,7 @@ function renderAgents(
 			body,
 		);
 
-		return textFile(
-			agentPaths.get(agent.id) ??
-				`.opencode/agents/${slug(agent.id, "agent")}.md`,
-			content,
-			sourceRef(agent.id, "agent"),
-		);
+		return textFile(path, content, sourceRef(agent.id, "agent"));
 	});
 }
 
@@ -701,6 +729,8 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 		});
 	}
 
+	degradations.push(...invocationDegradations(ir));
+
 	const ungeneratedRuntimeModules = ir.runtimeModules.filter(
 		(module) =>
 			module.target === OPENCODE_TARGET &&
@@ -714,6 +744,43 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: "runtime-module-manifest",
 			reason:
 				"Runtime modules are recorded but not generated by this exporter yet.",
+		});
+	}
+
+	return degradations;
+}
+
+/**
+ * Controls OpenCode does not document. Skills are loaded by the model through
+ * the skill tool or by the user as `@skill-id`, with no way to hide a skill
+ * from the user (https://opencode.ai/docs/skills/). Agents always receive
+ * project instructions: "Project instructions, skills, references, and other
+ * instruction sources are still added" (https://opencode.ai/docs/agents/).
+ */
+function invocationDegradations(ir: PluginIr): CapabilityDegradation[] {
+	const degradations: CapabilityDegradation[] = [];
+	const hiddenSkills = ir.skills.filter(
+		(skill) => skill.userInvocable === false,
+	);
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (hiddenSkills.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: OPENCODE_TARGET },
+			from: "userInvocable: false",
+			to: "skill the user can load as @skill-id",
+			reason: `OpenCode has no setting that hides a skill from the user, so ${hiddenSkills.map((skill) => skill.id).join(", ")} stay user-invocable.`,
+		});
+	}
+
+	if (isolatedAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: OPENCODE_TARGET },
+			from: 'hostInstructions: "exclude"',
+			to: "agent with project instructions",
+			reason: `OpenCode adds AGENTS.md and configured instructions to every agent, so ${isolatedAgents.map((agent) => agent.id).join(", ")} also receive the project's instruction files.`,
 		});
 	}
 

@@ -83,9 +83,38 @@ targetMetadata: {
 },
 ```
 
+## Host instruction files
+
+Reviewer-style agents often need to start without the project's instruction
+files (`CLAUDE.md`, `AGENTS.md`, Copilot custom instructions), so they judge the
+work without inheriting its assumptions. Set `hostInstructions: "exclude"`:
+
+```ts
+agents: [
+	{
+		id: "critic",
+		name: "critic",
+		description: "Reviews a design with fresh eyes.",
+		instructions: { id: "critic-body", kind: "instruction" },
+		access: "read-only",
+		hostInstructions: "exclude",
+	},
+],
+```
+
+| Host | Mapping |
+| --- | --- |
+| Claude Code | `omitClaudeMd: true` |
+| GitHub Copilot CLI | `include-custom-instructions: false` |
+| Cline | configured agents already start without `.clinerules` |
+| Others | no control; reported as a degradation |
+
+Both Claude Code and Copilot CLI apply this when the agent runs as a subagent,
+which is how plugin agents are used; a user who selects the agent as the main
+session agent still gets the project's instructions.
+
 ## Agent names
 
-Some hosts rename agents to fit their naming rules; the EGM example notes that
-Codex writes `egm_style` where the skills dispatch `egm-style`. Refer to agent
-files with `${OIAP_AGENT_FILE:<id>}` rather than by name or path; see
-[Bundled files and path tokens](/oiap/guides/bundled-files/).
+Agent names are kept as written on every host, so a skill can dispatch a
+subagent by name. Refer to agent files with `${OIAP_AGENT_FILE:<id>}` rather
+than by path; see [Bundled files and path tokens](/oiap/guides/bundled-files/).

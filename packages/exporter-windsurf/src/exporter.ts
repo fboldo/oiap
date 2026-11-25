@@ -28,13 +28,15 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
 import { renderHookRuntimeFiles, unsupportedHookIds } from "@oiap/runtime";
-import { WINDSURF_TARGET, windsurfProfile } from "./profile";
+import { WINDSURF_TARGET, windsurfProfile } from "./profile.ts";
 
 export type WindsurfPluginInput = PluginDefinition | PluginIr;
 
@@ -107,7 +109,9 @@ const READ_ONLY_TOOLS = ["read", "grep", "glob"];
 export const windsurfExporter = defineExporter({
 	target: WINDSURF_TARGET,
 	profile: windsurfProfile,
-	lower(ir: PluginIr): LoweredTargetGraph {
+	lower(input: PluginIr): LoweredTargetGraph {
+		const ir = scopeToTarget(input, WINDSURF_TARGET);
+
 		return {
 			target: WINDSURF_TARGET,
 			files: renderWindsurfFiles(ir),
@@ -159,7 +163,10 @@ export function exportWindsurf(plugin: WindsurfPluginInput): TargetBundle {
 }
 
 function normalizePluginInput(plugin: WindsurfPluginInput): PluginIr {
-	return isPluginIr(plugin) ? plugin : toPluginIr(plugin);
+	const ir = isPluginIr(plugin) ? plugin : toPluginIr(plugin);
+
+	// Primitives limited to other hosts never reach files or reports.
+	return scopeToTarget(ir, WINDSURF_TARGET);
 }
 
 function isPluginIr(plugin: WindsurfPluginInput): plugin is PluginIr {
@@ -196,6 +203,13 @@ function renderWindsurfFiles(ir: PluginIr): RenderedFile[] {
 			resourceRoot(ir),
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Author files for this host land at the workspace root, beside
+		// .windsurf/ and .devin/ (for example .devin/hooks.v1.json).
+		...renderPluginFiles(
+			ir.targetFiles?.[WINDSURF_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	// Windsurf has no plugin root variable in skill or agent text, so bundle
 	// paths are resolved relative to the file that references them.
@@ -231,14 +245,29 @@ function renderWindsurfFiles(ir: PluginIr): RenderedFile[] {
 
 function renderTargetManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
-	const content = omitUndefined({
+	// A workspace bundle has no host manifest. This OIAP target manifest keeps
+	// the publisher metadata under the key names of the Devin plugin manifest
+	// (.devin-plugin/plugin.json: author, repository, keywords, and logo as a
+	// path relative to the plugin directory), which has no displayName.
+	// https://docs.devin.ai/cli/extensibility/plugins/overview.md#metadata
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
-		displayName: manifest.name,
+		displayName: manifest.displayName ?? manifest.name,
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords:
+			manifest.keywords && manifest.keywords.length > 0
+				? manifest.keywords
+				: manifest.categories.length > 0
+					? manifest.categories
+					: undefined,
+		logo: manifest.logo
+			? `${resourceRoot(ir)}/${sanitizeRelativePath(manifest.logo)}`
+			: undefined,
 		target: WINDSURF_TARGET,
 		rules: hasRuleOutput(ir) ? `${RULES_DIR}/` : undefined,
 		skills: hasSkillOutput(ir) ? `${SKILLS_DIR}/` : undefined,
@@ -254,6 +283,10 @@ function renderTargetManifest(ir: PluginIr): RenderedFile {
 		resources:
 			(ir.resources ?? []).length > 0 ? `${resourceRoot(ir)}/` : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[WINDSURF_TARGET],
+	);
 
 	return jsonFile(MANIFEST_PATH, content, sourceRef(manifest.id, "manifest"));
 }
@@ -332,14 +365,18 @@ function renderSkills(
 			slug(skill.name || skill.id, skill.id),
 			usedSkillSlugs,
 		);
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			renderSkillBody(skill, instruction),
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					triggers: skillTriggers(skill),
+					...targetMetadata(skill.targetMetadata),
+				},
+				renderSkillBody(skill, instruction),
+			);
 
 		return [
 			textFile(
@@ -354,6 +391,22 @@ function renderSkills(
 			),
 		];
 	});
+}
+
+/**
+ * `triggers` lists who may invoke a skill: `user` (/skill-name) and `model`
+ * (the agent on its own); the default is both.
+ * https://docs.devin.ai/cli/extensibility/skills/overview.md#skill-triggers
+ */
+function skillTriggers(skill: SkillAsset): string[] | undefined {
+	if (skill.modelInvocable !== false && skill.userInvocable !== false) {
+		return undefined;
+	}
+
+	return [
+		...(skill.userInvocable === false ? [] : ["user"]),
+		...(skill.modelInvocable === false ? [] : ["model"]),
+	];
 }
 
 function renderCommandsAsSkills(
@@ -437,8 +490,18 @@ function renderAgents(
 	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
-		const instruction = findInstruction(instructions, agent.instructions.id);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
+
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(
+				agentPath(agentSlug),
+				agent.source.content,
+				sourceRef(agent.id, "agent"),
+			);
+		}
+
+		const instruction = findInstruction(instructions, agent.instructions.id);
 		const frontmatter = omitUndefined({
 			name: agentSlug,
 			description: agent.description,
@@ -1084,6 +1147,22 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: ".devin/agents subagent profiles",
 			reason:
 				"Custom subagent files are documented for Devin CLI; Devin Desktop gates subagents behind a preview setting and does not document reading these files.",
+		});
+	}
+
+	const isolatedAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	// Subagent frontmatter has name, description, model, allowed-tools and
+	// max-nesting only; nothing keeps workspace rules or AGENTS.md out.
+	// https://docs.devin.ai/cli/subagents.md#frontmatter-fields
+	if (isolatedAgents.length > 0) {
+		degraded.push({
+			capability: { kind: "agents", target: WINDSURF_TARGET },
+			from: 'hostInstructions: "exclude"',
+			to: "subagent with workspace rules",
+			reason: `Windsurf subagent profiles have no setting that leaves out the workspace's rules and AGENTS.md, so ${isolatedAgents.map((agent) => agent.id).join(", ")} may receive them.`,
 		});
 	}
 

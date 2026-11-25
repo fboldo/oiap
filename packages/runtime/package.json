@@ -27,7 +27,7 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json && bun run build:runner",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json && bun run build:runner",
 		"build:runner": "bun build src/runner.ts --target=node --format=esm --outfile=dist/runner.mjs",
 		"check": "bun run typecheck",
 		"test": "bun test src",

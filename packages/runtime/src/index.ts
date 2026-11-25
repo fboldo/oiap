@@ -5,7 +5,7 @@ import type {
 	SourceRef,
 	TargetId,
 } from "@oiap/core";
-import { renderRunnerSource } from "./runner-source";
+import { renderRunnerSource } from "./runner-source.ts";
 
 export const OIAP_RUNTIME_ROOT = ".oiap/runtime";
 export const OIAP_RUNTIME_MANIFEST_PATH = `${OIAP_RUNTIME_ROOT}/manifest.json`;

@@ -31,7 +31,14 @@ workspace bundle:
   ([MCP](https://docs.devin.ai/cli/extensibility/mcp/configuration.md)).
 - `.windsurf/<plugin>/`: plugin resources.
 - `.oiap/`: the target manifest, capability report, source map, policy
-  evidence and runtime.
+  evidence and runtime. `targetMetadata.windsurf` on the plugin manifest
+  merges into `.oiap/windsurf-target.json` (`null` removes a field).
+- `targetFiles.windsurf`: written as-is relative to the workspace root, beside
+  `.windsurf/` and `.devin/` (for example `.devin/hooks/<script>`).
+
+Agents from `agentsFrom` are written to `.devin/agents/<name>.md` unchanged,
+like skills from `skillsFrom`. Primitives with `targets` that leave out
+`windsurf` are dropped.
 
 To activate the bundle, copy `.windsurf/`, `.devin/` and `.oiap/` into the
 workspace root. Hook commands depend on `DEVIN_PROJECT_DIR`, so they only work

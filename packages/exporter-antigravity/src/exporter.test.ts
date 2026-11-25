@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportAntigravity } from "./exporter";
+import { exportAntigravity } from "./exporter.ts";
 
 const target = "antigravity";
 
@@ -24,7 +24,10 @@ describe("exportAntigravity", () => {
 		expect(paths).toContain("rules/team-guidance.md");
 		expect(paths).toContain("agents/reviewer.md");
 		expect(paths).toContain("hooks.json");
-		expect(paths).toContain(".oiap/runtime/runner.mjs");
+		expect(paths).toContain(".oiap/runtime/antigravity/runner.mjs");
+		expect(paths).toContain(".oiap/runtime/antigravity/hooks.mjs");
+		expect(paths).toContain(".oiap/runtime/antigravity/manifest.json");
+		expect(paths).not.toContain(".oiap/runtime/manifest.json");
 		expect(paths).toContain(".oiap/hooks/pre-tool.json");
 		expect(paths).toContain("mcp_config.json");
 		expect(paths).toContain(".oiap/antigravity-permissions.json");
@@ -101,7 +104,7 @@ describe("exportAntigravity", () => {
 		expect(group?.PreToolUse[0]?.hooks[0]).toEqual({
 			type: "command",
 			command:
-				'node "./.oiap/runtime/runner.mjs" run-hook --manifest "./.oiap/runtime/manifest.json" --target "antigravity" --event "before_tool" --hook "pre-tool"',
+				'node "./.oiap/runtime/antigravity/runner.mjs" run-hook --manifest "./.oiap/runtime/antigravity/manifest.json" --target "antigravity" --event "before_tool" --hook "pre-tool"',
 			timeout: 3,
 		});
 	});
@@ -159,6 +162,169 @@ describe("exportAntigravity", () => {
 		expect(bundle.report.status).toBe("degraded");
 		expect(degradations).toContain("plugin-root-variable");
 		expect(degradations).toContain("read-only-agent");
+	});
+
+	test("maps manifest metadata, logo and skill invocation", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Plugin",
+				keywords: ["review", "docs"],
+				categories: ["ignored-when-keywords-set"],
+				logo: "./assets/logo.svg",
+				author: { name: "Acme", url: "https://acme.example" },
+				repository: "https://github.com/acme/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+			skills: [
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					modelInvocable: false,
+				})),
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					id: "hidden",
+					name: "hidden",
+					userInvocable: false,
+					targetMetadata: {
+						[target]: { "disable-model-invocation": false },
+					},
+				})),
+			],
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				hostInstructions: "exclude" as const,
+			})),
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".antigravity-plugin/plugin.json",
+		);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => [degradation.capability.kind, degradation.from],
+		);
+
+		expect(manifest).toMatchObject({
+			displayName: "Bundle Files Plugin",
+			logo: "assets/logo.svg",
+			author: { name: "Acme", url: "https://acme.example" },
+			repository: "https://github.com/acme/bundle-files",
+			keywords: ["review", "docs"],
+		});
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"disable-model-invocation: true",
+		);
+		expect(readText(bundle, "skills/hidden/SKILL.md")).toContain(
+			"disable-model-invocation: false",
+		);
+		expect(degradations).toContainEqual(["skills", "model-only-skill"]);
+		expect(degradations).not.toContainEqual(["skills", "user-only-skill"]);
+		expect(degradations).toContainEqual([
+			"agents",
+			"agent-without-host-instructions",
+		]);
+		expect(
+			bundle.report.issues.some(
+				(issue) => issue.code === "invalid-antigravity-plugin-manifest",
+			),
+		).toBe(false);
+	});
+
+	test("omits a logo that is not a bundled image", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			manifest: { ...bundleFilesPlugin.manifest, logo: "assets/missing.png" },
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".antigravity-plugin/plugin.json",
+		);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+
+		expect(manifest.logo).toBeUndefined();
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"invalid-logo",
+		);
+		expect(degradations).not.toContain("model-only-skill");
+		expect(degradations).not.toContain("agent-without-host-instructions");
+	});
+
+	test("drops primitives limited to other targets", () => {
+		const agent = bundleFilesPlugin.agents[0];
+		if (!agent) throw new Error("Missing agent fixture");
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			agents: [
+				agent,
+				{
+					...agent,
+					id: "gemini-only",
+					name: "gemini-only",
+					targets: ["gemini-cli"],
+				},
+			],
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain("agents/critic.md");
+		expect(paths.some((path) => path.includes("gemini-only"))).toBe(false);
+		expect(JSON.stringify(bundle.report)).not.toContain("gemini-only");
+	});
+
+	test("merges manifest targetMetadata and removes null fields", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				targetMetadata: {
+					antigravity: { version: null, suggestedPrompts: ["Review this"] },
+					"gemini-cli": { description: "Not for Antigravity." },
+				},
+			},
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".antigravity-plugin/plugin.json",
+		);
+
+		expect(manifest.version).toBeUndefined();
+		expect(manifest.suggestedPrompts).toEqual(["Review this"]);
+		expect(manifest.description).toBe(
+			"Skill files, resources and path tokens.",
+		);
+	});
+
+	test("emits target files at the plugin root", () => {
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			targetFiles: {
+				antigravity: [{ path: "scripts/check.sh", content: "#!/bin/sh\n" }],
+				"gemini-cli": [{ path: "scripts/gemini.sh", content: "#!/bin/sh\n" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, "scripts/check.sh")).toBe("#!/bin/sh\n");
+		expect(paths).not.toContain("scripts/gemini.sh");
+	});
+
+	test("emits an in-place agent file unchanged", () => {
+		const agent = bundleFilesPlugin.agents[0];
+		if (!agent) throw new Error("Missing agent fixture");
+		const content = "---\nname: critic\nmodel: fast\n---\n\nAs written.\n";
+		const bundle = exportAntigravity({
+			...bundleFilesPlugin,
+			agents: [{ ...agent, source: { file: "agents/critic.md", content } }],
+		});
+
+		expect(readText(bundle, "agents/critic.md")).toBe(content);
 	});
 
 	test("reports duplicate bundle files", () => {

@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exportClaudeCode } from "@oiap/exporter-claude-code";
-import { bundleHooksFromSource, loadPluginFile } from "./build";
+import { exportGeminiCli } from "@oiap/exporter-gemini-cli";
+import { bundleHooksFromSource, loadPluginFile } from "./build.ts";
 
 describe("bundleHooksFromSource", () => {
 	const directories: string[] = [];
@@ -40,7 +41,7 @@ export default definePlugin({
 		version: "1.0.0",
 		description: "Blocks risky commands.",
 		categories: [],
-		supportedTargets: ["claude-code"],
+		supportedTargets: ["claude-code", "gemini-cli"],
 	},
 	hooks: [
 		hook.beforeTool("guard", (context) => {
@@ -79,5 +80,14 @@ export default definePlugin({
 		expect(
 			await handler?.({ input: { arguments: { command: "ls" } } }),
 		).toMatchObject({ decision: "allow" });
+
+		const gemini = await bundleHooksFromSource(
+			exportGeminiCli(plugin),
+			pluginFile,
+		);
+		const geminiHooks = gemini.files.find((file) =>
+			/\.oiap\/runtime\/[^/]+\/hooks\.mjs$/.test(file.path),
+		);
+		expect(String(geminiHooks?.content)).toContain("function isRisky");
 	});
 });

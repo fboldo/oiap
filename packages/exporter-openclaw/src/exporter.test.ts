@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportOpenClaw } from "./exporter";
+import { exportOpenClaw } from "./exporter.ts";
 
 describe("exportOpenClaw", () => {
 	test("renders a native OpenClaw plugin package", () => {
@@ -118,6 +118,162 @@ describe("exportOpenClaw", () => {
 		expect(bundle.report.status).toBe("degraded");
 		expect(degradations).toContain("plugin-root-variable");
 		expect(degradations).toContain("read-only-agent");
+	});
+
+	test("maps manifest metadata, icon and skill invocation", () => {
+		const icon = new Uint8Array([137, 80, 78, 71]);
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Plugin",
+				keywords: ["review"],
+				logo: "branding/logo.png",
+				author: { name: "Acme", email: "dev@acme.example" },
+				repository: "https://github.com/acme/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "branding/logo.png", content: icon },
+			],
+			skills: [
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					modelInvocable: false,
+				})),
+				...bundleFilesPlugin.skills.map((skill) => ({
+					...skill,
+					id: "hidden",
+					name: "hidden",
+					userInvocable: false,
+					targetMetadata: { openclaw: { "user-invocable": true } },
+				})),
+			],
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				hostInstructions: "exclude" as const,
+			})),
+		});
+		const packageJson = readJson(bundle, "package.json");
+		const manifest = readJson(bundle, "openclaw.plugin.json");
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => [degradation.capability.kind, degradation.from],
+		);
+
+		expect(packageJson).toMatchObject({
+			keywords: ["review"],
+			author: { name: "Acme", email: "dev@acme.example" },
+			repository: {
+				type: "git",
+				url: "https://github.com/acme/bundle-files",
+			},
+		});
+		expect(manifest.name).toBe("Bundle Files Plugin");
+		expect(manifest).not.toHaveProperty("logo");
+		expect(readText(bundle, "index.ts")).toContain(
+			'name: "Bundle Files Plugin"',
+		);
+		expect(findFile(bundle, "assets/icon.png").content).toEqual(icon);
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"disable-model-invocation: true",
+		);
+		expect(readText(bundle, "skills/review/SKILL.md")).not.toContain(
+			"user-invocable",
+		);
+		expect(readText(bundle, "skills/hidden/SKILL.md")).toContain(
+			"user-invocable: true",
+		);
+		expect(readJson(bundle, ".oiap/agents/critic.json").hostInstructions).toBe(
+			"exclude",
+		);
+		expect(degradations).toContainEqual([
+			"agents",
+			"agent-without-host-instructions",
+		]);
+		expect(degradations).not.toContainEqual(["skills", "user-only-skill"]);
+		expect(degradations).not.toContainEqual(["skills", "model-only-skill"]);
+	});
+
+	test("writes user-invocable: false and warns about a non-PNG logo", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			manifest: { ...bundleFilesPlugin.manifest, logo: "standards/style.md" },
+			skills: bundleFilesPlugin.skills.map((skill) => ({
+				...skill,
+				userInvocable: false,
+			})),
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"user-invocable: false",
+		);
+		expect(paths).not.toContain("assets/icon.png");
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"unmapped-logo",
+		);
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
+	test("drops primitives limited to other targets", () => {
+		const skill = bundleFilesPlugin.skills[0];
+		if (!skill) throw new Error("Missing skill fixture");
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			skills: [
+				skill,
+				{ ...skill, id: "codex-only", name: "codex-only", targets: ["codex"] },
+			],
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain("skills/review/SKILL.md");
+		expect(paths.some((path) => path.includes("codex-only"))).toBe(false);
+		expect(JSON.stringify(bundle.report)).not.toContain("codex-only");
+	});
+
+	test("merges manifest targetMetadata into openclaw.plugin.json", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				targetMetadata: {
+					openclaw: {
+						version: null,
+						configSchema: { additionalProperties: true },
+					},
+					codex: { description: "Not for OpenClaw." },
+				},
+			},
+		});
+		const manifest = readJson(bundle, "openclaw.plugin.json");
+
+		expect(manifest.version).toBeUndefined();
+		expect(manifest.configSchema).toEqual({
+			type: "object",
+			additionalProperties: true,
+			properties: {},
+		});
+		expect(manifest.description).toBe(
+			"Skill files, resources and path tokens.",
+		);
+		expect(readJson(bundle, "package.json").version).toBe("1.0.0");
+	});
+
+	test("emits target files at the package root", () => {
+		const bundle = exportOpenClaw({
+			...bundleFilesPlugin,
+			targetFiles: {
+				openclaw: [{ path: "scripts/check.sh", content: "#!/bin/sh\n" }],
+				codex: [{ path: "scripts/codex.sh", content: "#!/bin/sh\n" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, "scripts/check.sh")).toBe("#!/bin/sh\n");
+		expect(paths).not.toContain("scripts/codex.sh");
 	});
 
 	test("reports duplicate bundle files", () => {

@@ -1,9 +1,14 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportWindsurf } from "./exporter";
-import { windsurfProfile } from "./profile";
+import type {
+	AgentDefinition,
+	PluginDefinition,
+	SkillAsset,
+	TargetBundle,
+} from "@oiap/core";
+import { exportWindsurf } from "./exporter.ts";
+import { windsurfProfile } from "./profile.ts";
 
 const target = "windsurf";
 
@@ -227,6 +232,90 @@ describe("exportWindsurf", () => {
 		);
 	});
 
+	test("maps skill invocation controls to triggers", () => {
+		const bundle = exportWindsurf({
+			...invocationPlugin,
+			skills: [
+				{ ...manualSkill, modelInvocable: false },
+				{ ...backgroundSkill, userInvocable: false },
+			],
+		});
+
+		expect(readText(bundle, ".windsurf/skills/manual/SKILL.md")).toContain(
+			'triggers: ["user"]',
+		);
+		expect(readText(bundle, ".windsurf/skills/background/SKILL.md")).toContain(
+			'triggers: ["model"]',
+		);
+		expect(
+			readText(
+				exportWindsurf(invocationPlugin),
+				".windsurf/skills/manual/SKILL.md",
+			),
+		).not.toContain("triggers");
+		expect(
+			bundle.report.degradedCapabilities.map(
+				(degradation) => degradation.capability.kind,
+			),
+		).not.toContain("skills");
+	});
+
+	test("keeps targetMetadata over mapped triggers", () => {
+		const bundle = exportWindsurf({
+			...invocationPlugin,
+			skills: [
+				{
+					...manualSkill,
+					modelInvocable: false,
+					targetMetadata: { windsurf: { triggers: ["user", "model"] } },
+				},
+			],
+		});
+
+		expect(readText(bundle, ".windsurf/skills/manual/SKILL.md")).toContain(
+			'triggers: ["user","model"]',
+		);
+	});
+
+	test("degrades agents that exclude host instructions", () => {
+		const excluded = exportWindsurf({
+			...invocationPlugin,
+			agents: [{ ...isolatedAgent, hostInstructions: "exclude" }],
+		});
+		const included = exportWindsurf({
+			...invocationPlugin,
+			agents: [{ ...isolatedAgent, hostInstructions: "include" }],
+		});
+		const fromValues = (bundle: TargetBundle) =>
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from);
+
+		expect(excluded.report.degradedCapabilities).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "agents", target },
+				from: 'hostInstructions: "exclude"',
+			}),
+		);
+		expect(excluded.report.status).toBe("degraded");
+		expect(fromValues(included)).not.toContain('hostInstructions: "exclude"');
+	});
+
+	test("records publisher metadata in the target manifest", () => {
+		const bundle = exportWindsurf(invocationPlugin);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".oiap/windsurf-target.json",
+		);
+
+		expect(manifest.displayName).toBe("Invocation Controls");
+		expect(manifest.keywords).toEqual(["review"]);
+		expect(manifest.author).toEqual({ name: "Ada", email: "ada@example.com" });
+		expect(manifest.repository).toBe("https://github.com/example/invocation");
+		expect(manifest.logo).toBe(".windsurf/invocation/assets/logo.svg");
+		expect(readText(bundle, ".windsurf/invocation/assets/logo.svg")).toBe(
+			"<svg/>",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportWindsurf({
 			...bundleFilesPlugin,
@@ -242,6 +331,91 @@ describe("exportWindsurf", () => {
 		);
 	});
 
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			skills: [
+				...samplePlugin.skills,
+				{
+					id: "codex_only",
+					name: "Codex Only",
+					description: "Only for Codex.",
+					instructions: { id: "audit-instructions", kind: "instruction" },
+					targets: ["codex"],
+				},
+			],
+			agents: [
+				...samplePlugin.agents,
+				{
+					id: "claude-only",
+					name: "Claude Only",
+					description: "Only for Claude.",
+					instructions: { id: "agent-instructions", kind: "instruction" },
+					targets: ["claude-code"],
+				},
+			],
+		} as PluginDefinition);
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).toContain(".windsurf/skills/audit-repo/SKILL.md");
+		expect(paths).not.toContain(".windsurf/skills/codex-only/SKILL.md");
+		expect(paths).not.toContain(".devin/agents/claude-only.md");
+		expect(JSON.stringify(bundle.report)).not.toContain("codex_only");
+		expect(JSON.stringify(bundle.report)).not.toContain("claude-only");
+	});
+
+	test("merges manifest targetMetadata into the target manifest", () => {
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			manifest: {
+				...samplePlugin.manifest,
+				targetMetadata: {
+					[target]: { version: null, extra: { team: "core" } },
+					codex: { ignored: true },
+				},
+			},
+		} as PluginDefinition);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".oiap/windsurf-target.json",
+		);
+
+		expect(manifest).not.toHaveProperty("version");
+		expect(manifest.extra).toEqual({ team: "core" });
+		expect(manifest).not.toHaveProperty("ignored");
+		expect(manifest.name).toBe("sample-windsurf");
+	});
+
+	test("writes targetFiles at the workspace root", () => {
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			targetFiles: {
+				[target]: [{ path: ".devin/hooks/custom.sh", content: "#!/bin/sh\n" }],
+				codex: [{ path: "codex-only.txt", content: "no" }],
+			},
+		} as PluginDefinition);
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, ".devin/hooks/custom.sh")).toBe("#!/bin/sh\n");
+		expect(paths).not.toContain("codex-only.txt");
+	});
+
+	test("emits in-place agents byte-identical", () => {
+		const content =
+			"---\nname: reviewer\ndescription: Hand-written.\n---\n\nKeep me as is.\n";
+		const bundle = exportWindsurf({
+			...samplePlugin,
+			agents: [
+				{
+					...samplePlugin.agents[0],
+					source: { file: "agents/reviewer.md", content },
+				},
+			],
+		} as PluginDefinition);
+
+		expect(readText(bundle, ".devin/agents/reviewer.md")).toBe(content);
+	});
+
 	test("profile declares install paths", () => {
 		expect(windsurfProfile.installSupport?.paths).toEqual({
 			local: { base: "cwd", segments: [".windsurf", "plugins", "{pluginId}"] },
@@ -252,6 +426,56 @@ describe("exportWindsurf", () => {
 		});
 	});
 });
+
+const manualSkill = {
+	id: "manual",
+	name: "manual",
+	description: "Run only when asked.",
+	instructions: { id: "manual-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const backgroundSkill = {
+	id: "background",
+	name: "background",
+	description: "Background knowledge.",
+	instructions: { id: "background-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const isolatedAgent = {
+	id: "isolated",
+	name: "isolated",
+	description: "Runs without project instructions.",
+	instructions: { id: "isolated-body", kind: "instruction" },
+} satisfies AgentDefinition;
+
+const invocationPlugin = {
+	manifest: {
+		id: "invocation",
+		name: "Invocation",
+		displayName: "Invocation Controls",
+		version: "1.0.0",
+		description: "Skill and agent invocation controls.",
+		keywords: ["review"],
+		logo: "assets/logo.svg",
+		author: { name: "Ada", email: "ada@example.com" },
+		repository: "https://github.com/example/invocation",
+		categories: ["testing"],
+		supportedTargets: [target],
+	},
+	instructions: [
+		{ id: "manual-body", purpose: "command", triggers: [], body: "Manual." },
+		{
+			id: "background-body",
+			purpose: "always_on",
+			triggers: [],
+			body: "Background.",
+		},
+		{ id: "isolated-body", purpose: "agent", triggers: [], body: "Isolated." },
+	],
+	skills: [manualSkill, backgroundSkill],
+	agents: [isolatedAgent],
+	resources: [{ path: "assets/logo.svg", content: "<svg/>" }],
+} satisfies PluginDefinition;
 
 const bundleFilesPlugin = {
 	manifest: {

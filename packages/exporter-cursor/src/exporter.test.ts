@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportCursor } from "./exporter";
+import { exportCursor } from "./exporter.ts";
 
 const target = "cursor";
 
@@ -148,6 +148,64 @@ describe("exportCursor", () => {
 		expect(degradations).not.toContain("read-only-agent");
 	});
 
+	test("maps manifest metadata and skill invocation", () => {
+		const bundle = exportCursor(hostFieldsPlugin);
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".cursor-plugin/plugin.json",
+		);
+
+		expect(manifest.displayName).toBe("Bundle Files Pro");
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.author).toEqual({
+			name: "Docs Team",
+			email: "docs@example.com",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle");
+		expect(manifest.logo).toBe("assets/logo.svg");
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+
+		const skill = readText(bundle, "skills/review/SKILL.md");
+		expect(skill).toContain("disable-model-invocation: true");
+		expect(skill).not.toContain("user-invocable");
+		expect(readText(bundle, "agents/critic.md")).not.toContain("omit");
+	});
+
+	test("degrades model-only skills and agents without host instructions", () => {
+		const bundle = exportCursor(hostFieldsPlugin);
+		const degradations = bundle.report.degradedCapabilities.map(
+			(degradation) => `${degradation.capability.kind}:${degradation.from}`,
+		);
+
+		expect(bundle.report.status).toBe("degraded");
+		expect(degradations).toContain("skills:model-only-skill");
+		expect(degradations).toContain("agents:agent-without-host-instructions");
+
+		const plain = exportCursor(bundleFilesPlugin);
+		const plainDegradations = plain.report.degradedCapabilities.map(
+			(degradation) => degradation.from,
+		);
+		expect(plainDegradations).not.toContain("model-only-skill");
+		expect(plainDegradations).not.toContain("agent-without-host-instructions");
+		expect(readText(plain, "skills/review/SKILL.md")).not.toContain(
+			"disable-model-invocation",
+		);
+	});
+
+	test("targetMetadata overrides mapped skill frontmatter", () => {
+		const bundle = exportCursor({
+			...hostFieldsPlugin,
+			skills: hostFieldsPlugin.skills.map((skill) => ({
+				...skill,
+				targetMetadata: { cursor: { "disable-model-invocation": false } },
+			})),
+		});
+
+		expect(readText(bundle, "skills/review/SKILL.md")).toContain(
+			"disable-model-invocation: false",
+		);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportCursor({
 			...bundleFilesPlugin,
@@ -158,6 +216,123 @@ describe("exportCursor", () => {
 		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
 			"duplicate-bundle-file",
 		);
+	});
+});
+
+describe("exportCursor target features", () => {
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportCursor({
+			...bundleFilesPlugin,
+			skills: [
+				...bundleFilesPlugin.skills,
+				{
+					id: "elsewhere",
+					name: "elsewhere",
+					description: "Only for Gemini.",
+					instructions: { id: "review-body", kind: "instruction" },
+					targets: ["gemini-cli"],
+				},
+				{
+					id: "here",
+					name: "here",
+					description: "Only for this host.",
+					instructions: { id: "review-body", kind: "instruction" },
+					targets: ["cursor"],
+				},
+			],
+			agents: [
+				...bundleFilesPlugin.agents,
+				{
+					id: "gemini-agent",
+					name: "gemini-agent",
+					description: "Only for Gemini.",
+					instructions: { id: "critic-body", kind: "instruction" },
+					targets: ["gemini-cli"],
+				},
+			],
+		});
+		const paths = bundle.files.map((file) => file.path);
+		const evidence = paths
+			.filter((path) => path.startsWith(".oiap/"))
+			.map((path) => readText(bundle, path))
+			.join("\n");
+
+		expect(paths.some((path) => path.includes("elsewhere"))).toBe(false);
+		expect(paths.some((path) => path.includes("gemini-agent"))).toBe(false);
+		expect(evidence).not.toContain("elsewhere");
+		expect(evidence).not.toContain("gemini-agent");
+		expect(paths).toContain("skills/here/SKILL.md");
+	});
+
+	test("merges manifest target metadata and removes null fields", () => {
+		const bundle = exportCursor({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				targetMetadata: {
+					cursor: { version: null, homepage: "https://example.com/x" },
+					"gemini-cli": { homepage: "https://example.com/gemini" },
+				},
+			},
+		});
+		const manifest = readJson<Record<string, unknown>>(
+			bundle,
+			".cursor-plugin/plugin.json",
+		);
+
+		expect("version" in manifest).toBe(false);
+		expect(manifest.homepage).toBe("https://example.com/x");
+		expect(manifest.description).toBe(bundleFilesPlugin.manifest.description);
+	});
+
+	test("emits target files at the plugin root with resolved paths", () => {
+		const bundle = exportCursor({
+			...bundleFilesPlugin,
+			targetFiles: {
+				cursor: [
+					{
+						path: "scripts/check.sh",
+						content: "cat $" + "{OIAP_PLUGIN_ROOT}/standards/style.md\n",
+						mode: 0o755,
+					},
+				],
+				"gemini-cli": [{ path: "scripts/gemini.sh", content: "echo\n" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+		const script = bundle.files.find(
+			(file) => file.path === "scripts/check.sh",
+		);
+
+		expect(script?.content).toBe(`cat ${"../standards/style.md"}\n`);
+		expect(script?.mode).toBe(0o755);
+		expect(script?.source?.primitiveKind).toBe("target-file");
+		expect(paths).not.toContain("scripts/gemini.sh");
+	});
+
+	test("reports target files that shadow generated files", () => {
+		const bundle = exportCursor({
+			...bundleFilesPlugin,
+			targetFiles: { cursor: [{ path: "README.md", content: "mine" }] },
+		});
+
+		expect(bundle.report.issues.map((issue) => issue.code)).toContain(
+			"duplicate-bundle-file",
+		);
+	});
+
+	test("emits an agent from agentsFrom exactly as written", () => {
+		const content =
+			"---\nname: critic\ndescription: Critic.\ncolor: red\n---\n\nCritique.\n";
+		const bundle = exportCursor({
+			...bundleFilesPlugin,
+			agents: bundleFilesPlugin.agents.map((agent) => ({
+				...agent,
+				source: { file: "/repo/agents/critic.md", content },
+			})),
+		});
+
+		expect(readText(bundle, "agents/critic.md")).toBe(content);
 	});
 });
 
@@ -206,6 +381,35 @@ const bundleFilesPlugin = {
 		},
 	],
 	resources: [{ path: "standards/style.md", content: "Style" }],
+} satisfies PluginDefinition;
+
+const hostFieldsPlugin = {
+	...bundleFilesPlugin,
+	manifest: {
+		...bundleFilesPlugin.manifest,
+		displayName: "Bundle Files Pro",
+		keywords: ["review", "docs"],
+		logo: "assets/logo.svg",
+		author: {
+			name: "Docs Team",
+			email: "docs@example.com",
+			url: "https://example.com",
+		},
+		repository: "https://github.com/example/bundle",
+	},
+	skills: bundleFilesPlugin.skills.map((skill) => ({
+		...skill,
+		modelInvocable: false,
+		userInvocable: false,
+	})),
+	agents: bundleFilesPlugin.agents.map((agent) => ({
+		...agent,
+		hostInstructions: "exclude" as const,
+	})),
+	resources: [
+		...bundleFilesPlugin.resources,
+		{ path: "assets/logo.svg", content: "<svg/>" },
+	],
 } satisfies PluginDefinition;
 
 const sampleCursorPlugin = {

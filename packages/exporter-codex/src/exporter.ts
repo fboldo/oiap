@@ -13,6 +13,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	ProjectRule,
 	RenderedFile,
 	RuntimeModule,
@@ -28,8 +29,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -38,7 +41,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { CODEX_TARGET, codexProfile } from "./profile";
+import { CODEX_TARGET, codexProfile } from "./profile.ts";
 
 export type CodexPluginInput = PluginDefinition | PluginIr;
 
@@ -111,12 +114,12 @@ export function exportCodex(plugin: CodexPluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: CodexPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CODEX_TARGET,
+	);
 }
 
 function isPluginIr(plugin: CodexPluginInput): plugin is PluginIr {
@@ -155,6 +158,13 @@ function renderCodexFiles(ir: PluginIr): RenderedFile[] {
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Hand-written host files (hook scripts, hooks.json, ...) at the plugin
+		// root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[CODEX_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
 		resourceRoot: RESOURCE_ROOT,
@@ -186,33 +196,65 @@ function renderCodexFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// Codex reads `.codex-plugin/plugin.json` with top-level name, version,
+// description and keywords; display fields live under `interface`
+// (displayName, developerName, websiteURL, logo as a "./" path from the plugin
+// root). author ({name, email, url}), homepage, repository and license are
+// documented for the Agent Plugins plugin.json and ignored by the legacy parser.
+// https://developers.openai.com/codex/plugins/build
+// https://github.com/openai/codex/blob/main/codex-rs/core-plugins/src/manifest.rs
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const hasSkills = ir.skills.length > 0 || ir.commands.length > 0;
 	const hasHooks = supportedCodexHooks(ir.hooks).length > 0;
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id),
 		version: manifest.version,
 		description: manifest.description,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
 		skills: hasSkills ? "./skills/" : undefined,
 		mcpServers: hasMcp ? "./.mcp.json" : undefined,
 		hooks: hasHooks ? "./hooks/hooks.json" : undefined,
 		interface: omitUndefined({
-			displayName: manifest.name,
+			displayName: manifest.displayName ?? manifest.name,
 			shortDescription: manifest.description,
+			developerName: manifest.author?.name,
 			category: manifest.categories[0],
+			websiteURL: manifest.homepage,
+			logo: manifest.logo ? `./${resourcePath(manifest.logo)}` : undefined,
 		}),
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CODEX_TARGET],
+	);
 
 	return jsonFile(
 		".codex-plugin/plugin.json",
 		content,
 		sourceRef(manifest.id, "manifest"),
 	);
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
+}
+
+function resourcePath(path: string): string {
+	const relative = path.replace(/^(\.\/)+/, "");
+
+	return RESOURCE_ROOT ? `${RESOURCE_ROOT}/${relative}` : relative;
 }
 
 function renderProjectInstructions(ir: PluginIr): RenderedFile[] {
@@ -284,14 +326,17 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs);
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -299,13 +344,53 @@ function renderSkills(
 				content,
 				sourceRef(skill.id, "skill"),
 			),
+			...renderSkillPolicy(skill, skillSlug),
 			...renderPluginFiles(
-				skill.files,
+				skill.files?.filter(
+					(file) =>
+						!(isSkillPolicyFile(file) && skill.modelInvocable === false),
+				),
 				`skills/${skillSlug}`,
 				sourceRef(skill.id, "skill-file"),
 			),
 		];
 	});
+}
+
+// `agents/openai.yaml` beside SKILL.md: `policy.allow_implicit_invocation:
+// false` keeps the skill out of the model's prompt so only an explicit `$skill`
+// runs it. Codex has no SKILL.md key to hide a skill from the user.
+// https://developers.openai.com/codex/skills
+// When the skill already ships its own agents/openai.yaml (interface, icons),
+// the policy is appended to it; a policy the author wrote is kept as is.
+function renderSkillPolicy(
+	skill: SkillAsset,
+	skillSlug: string,
+): RenderedFile[] {
+	if (skill.modelInvocable !== false) {
+		return [];
+	}
+
+	const policy = "policy:\n  allow_implicit_invocation: false\n";
+	const authored = skill.files?.find(isSkillPolicyFile)?.content;
+	const content =
+		typeof authored === "string"
+			? /^policy:/m.test(authored)
+				? authored
+				: `${authored.trimEnd()}\n${policy}`
+			: policy;
+
+	return [
+		textFile(
+			`skills/${skillSlug}/agents/openai.yaml`,
+			content,
+			sourceRef(skill.id, "skill-policy"),
+		),
+	];
+}
+
+function isSkillPolicyFile(file: { path: string }): boolean {
+	return file.path === "agents/openai.yaml";
 }
 
 function renderCommandsAsSkills(
@@ -355,7 +440,7 @@ function renderAgent(
 ): RenderedFile {
 	const instruction = findInstruction(agent.instructions.id, instructions);
 	const content = tomlDocument({
-		name: codexIdentifier(agent.id),
+		name: codexAgentName(agent.id),
 		description: agent.description,
 		model: agent.model,
 		developer_instructions: instruction
@@ -530,6 +615,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `.codex/rules/`: generated project-scoped command rules, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"- Skill files sit beside each `SKILL.md`; plugin resources are written at the bundle root, when present.",
+		"- Target files (`targetFiles.codex`) are copied at the plugin root, relative to this directory.",
 		"## Current Limitations",
 		"OIAP commands are exported as Codex skills. Supported TypeScript hook functions are emitted as a generated raw-JS OIAP runtime; unsupported lifecycle events remain degraded.",
 	];
@@ -619,6 +705,32 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			"Codex custom agent files cannot set a sandbox; sandbox_mode in .codex/agents/*.toml does not override the parent session (https://developers.openai.com/codex/subagents).",
 		),
 	];
+
+	const hiddenSkills = ir.skills.filter(
+		(skill) => skill.userInvocable === false,
+	);
+
+	if (hiddenSkills.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: CODEX_TARGET },
+			from: "model-only-skill",
+			to: "user-visible-skill",
+			reason: `${hiddenSkills.length} skill(s) set userInvocable: false; Codex has no control that hides a skill from the user's skill list while keeping it available to the model, so users can still run them with $skill.`,
+		});
+	}
+
+	const excludedInstructionAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (excludedInstructionAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: CODEX_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `${excludedInstructionAgents.length} agent(s) exclude host instructions; Codex custom agents inherit the parent session's instructions (AGENTS.md) and their developer_instructions are added on top, with no key to skip them.`,
+		});
+	}
 
 	if (ir.commands.length > 0) {
 		degradations.push({
@@ -787,7 +899,7 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 	};
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",
@@ -1078,12 +1190,16 @@ function slug(value: string): string {
 	return normalized || "asset";
 }
 
-function codexIdentifier(value: string): string {
+// Codex only requires a non-empty agent `name` (hyphens and underscores are
+// fine) and dispatches by that name, so the id keeps its separators.
+// https://developers.openai.com/codex/subagents
+// https://github.com/openai/codex/blob/main/codex-rs/agent-roles/src/agent_role_config.rs
+function codexAgentName(value: string): string {
 	const normalized = value
 		.trim()
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_")
-		.replace(/^_+|_+$/g, "");
+		.replace(/[^a-z0-9_-]+/g, "-")
+		.replace(/^[-_]+|[-_]+$/g, "");
 
 	return normalized || "agent";
 }

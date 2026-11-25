@@ -74,6 +74,7 @@ export default defineConfig({
 					items: [
 						"guides/write-a-plugin",
 						"guides/bundled-files",
+						"guides/per-host",
 						"guides/agents",
 						"guides/hooks",
 						"guides/oiap-sync",

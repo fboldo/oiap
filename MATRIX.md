@@ -37,6 +37,7 @@ canonical repository, or vendor-owned release note is found.
 
 | Target | Official or canonical source | Status | Notes |
 | --- | --- | --- | --- |
+| Agent Plugins 1.0 | <https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.0.0.md> | open spec | Verify which hosts read a root `plugin.json` with the agent-plugins.org `$schema`, and their precedence over host manifests. |
 | Claude Code | <https://docs.anthropic.com/en/docs/claude-code/overview> | official docs | Verify feature-specific pages for plugins, skills, commands, hooks, MCP, and settings. |
 | Codex | <https://developers.openai.com/codex> | official docs | Verify plugins, skills, AGENTS.md, hooks, MCP, subagents, rules, approvals, and sandbox settings. |
 | Cline | <https://docs.cline.bot/> | official docs | Verify project config pages for rules, skills, hooks, agents, plugins, MCP, and canonical `cline/cline` repository parser behavior. |
@@ -61,6 +62,7 @@ canonical repository, or vendor-owned release note is found.
 
 | Target | Profile | Package | Rules | Skills | Commands | Hooks | Agents | MCP | Runtime | Policy | Adapter package |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Agent Plugins 1.0 | open spec | Y | N | Y | N | N | N | Y | N | N | `packages/exporter-agent-plugins` |
 | Claude Code | core | Y | Y | Y | Y | Y | Y | Y | P | P | `packages/exporter-claude-code` |
 | Codex | core | Y | Y | Y | P | Y | Y | Y | F | Y | `packages/exporter-codex` |
 | Cline | core | P | Y | P | F | Y | P | Y | R | P | `packages/exporter-cline` |
@@ -120,6 +122,16 @@ packages/target-profiles/src/<target>.ts
 ```
 
 ## Target Notes
+
+### Agent Plugins 1.0
+
+Open manifest target. OIAP writes a root `plugin.json` with the
+agent-plugins.org 1.0.0 `$schema`, `skills/` and `mcp.json`, validated against
+the published schemas. GitHub Copilot CLI and VS Code prefer it over their own
+manifests, Codex prefers it over `.codex-plugin/plugin.json`, Cursor accepts it
+as an alternative, and OpenClaw reads it last. Commands, agents, rules and hooks
+are not part of 1.0.0 and are reported as degraded; host extras go in
+`extensions` through `manifest.targetMetadata["agent-plugins"]`.
 
 ### Claude Code
 

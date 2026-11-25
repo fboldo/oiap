@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	ProjectRule,
 	RenderedFile,
 	RuntimeModule,
@@ -26,8 +27,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -36,7 +39,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { CURSOR_TARGET, cursorProfile } from "./profile";
+import { CURSOR_TARGET, cursorProfile } from "./profile.ts";
 
 export type CursorPluginInput = PluginDefinition | PluginIr;
 
@@ -109,12 +112,12 @@ export function exportCursor(plugin: CursorPluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: CursorPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CURSOR_TARGET,
+	);
 }
 
 function isPluginIr(plugin: CursorPluginInput): plugin is PluginIr {
@@ -155,6 +158,13 @@ function renderCursorFiles(ir: PluginIr): RenderedFile[] {
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Hand-written host files (hook scripts, hooks.json, ...) at the plugin
+		// root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[CURSOR_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
 		resourceRoot: RESOURCE_ROOT,
@@ -186,6 +196,12 @@ function renderCursorFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// plugin.json documents keywords, logo (a path relative to the plugin, or a
+// URL), author ({name, email?}; no url), homepage, repository (string) and
+// license. displayName is not in the reference table but is part of Cursor's
+// official plugin template and every plugin in cursor/plugins.
+// https://cursor.com/docs/reference/plugins
+// https://github.com/cursor/plugin-template/blob/main/README.md
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const hasRules = hasRuleOutput(ir);
@@ -194,13 +210,22 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const hasAgents = ir.agents.length > 0;
 	const hasHooks = supportedCursorHooks(ir.hooks).length > 0;
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
+		displayName: manifest.displayName,
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author
+			? omitUndefined({
+					name: manifest.author.name,
+					email: manifest.author.email,
+				})
+			: undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
+		logo: manifest.logo ? resourcePath(manifest.logo) : undefined,
 		rules: hasRules ? "rules/" : undefined,
 		skills: hasSkills ? "skills/" : undefined,
 		commands: hasCommands ? "commands/" : undefined,
@@ -208,12 +233,32 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		hooks: hasHooks ? "hooks/hooks.json" : undefined,
 		mcpServers: hasMcp ? "mcp.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CURSOR_TARGET],
+	);
 
 	return jsonFile(
 		".cursor-plugin/plugin.json",
 		content,
 		sourceRef(manifest.id, "manifest"),
 	);
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
+}
+
+function resourcePath(path: string): string {
+	const relative = path.replace(/^(\.\/)+/, "");
+
+	return RESOURCE_ROOT ? `${RESOURCE_ROOT}/${relative}` : relative;
 }
 
 function renderProjectRuleFiles(
@@ -277,14 +322,22 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs, "skill");
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					// "When true, the skill is only included when explicitly invoked
+					// via /skill-name." Cursor has no key that hides a skill from the
+					// user. https://cursor.com/docs/context/skills
+					"disable-model-invocation":
+						skill.modelInvocable === false ? true : undefined,
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -348,6 +401,15 @@ function renderAgents(
 	agentSlugs: Map<string, string>,
 ): RenderedFile[] {
 	return agents.map((agent) => {
+		// An agent from agentsFrom() keeps its Markdown file exactly as written.
+		if (agent.source) {
+			return textFile(
+				agentPath(agentSlugs, agent),
+				agent.source.content,
+				sourceRef(agent.id, "agent"),
+			);
+		}
+
 		const instruction = findInstruction(agent.instructions.id, instructions);
 		const agentSlug = agentSlugs.get(agent.id) ?? slug(agent.id, "agent");
 		const body = [
@@ -562,6 +624,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `mcp.json`: generated MCP server configuration, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"- Skill files sit beside each `SKILL.md`; plugin resources are written at the plugin root, when present.",
+		"- Target files (`targetFiles.cursor`) are copied at the plugin root, relative to this directory.",
 		"## Current Limitations",
 		"Permission policies are emitted as evidence until policy-specific Cursor hook lowering is implemented. Supported portable hook functions are emitted as a generated raw-JS OIAP runtime; unsupported OIAP hook lifecycles remain degraded.",
 	];
@@ -652,6 +715,32 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 	const degradations: CapabilityDegradation[] = [
 		...bundleFileFindings(ir, BUNDLE_FILE_SUPPORT).degradations,
 	];
+	const hiddenSkills = ir.skills.filter(
+		(skill) => skill.userInvocable === false,
+	);
+
+	if (hiddenSkills.length > 0) {
+		degradations.push({
+			capability: { kind: "skills", target: CURSOR_TARGET },
+			from: "model-only-skill",
+			to: "user-visible-skill",
+			reason: `${hiddenSkills.length} skill(s) set userInvocable: false; Cursor documents no SKILL.md key that hides a skill from the / menu, so users can still run them.`,
+		});
+	}
+
+	const excludedInstructionAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (excludedInstructionAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: CURSOR_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `${excludedInstructionAgents.length} agent(s) exclude host instructions; Cursor subagents have no frontmatter key to skip project rules, AGENTS.md or user rules (https://cursor.com/docs/context/subagents), so they still load.`,
+		});
+	}
+
 	const supportedHooks = supportedCursorHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
 	const workspaceRootHooks = supportedHooks.filter((hook) => {
@@ -840,7 +929,7 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 	};
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",

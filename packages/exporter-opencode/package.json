@@ -27,7 +27,7 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json && bun run build:hook-plugin",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json && bun run build:hook-plugin",
 		"build:hook-plugin": "bun build src/hook-plugin.ts --target=node --format=esm --outfile=dist/hook-plugin.mjs",
 		"check": "bun run typecheck",
 		"test": "bun run build:hook-plugin && bun test src",

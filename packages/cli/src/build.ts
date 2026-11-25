@@ -3,10 +3,10 @@ import { dirname, isAbsolute, parse, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { RenderedFile, TargetBundle } from "@oiap/core";
 import { discoverPluginDeclarations } from "@oiap/core";
-import type { HookRuntimeManifest } from "./hook-bundler";
-import { bundleHookRuntimeSource } from "./hook-bundler";
-import type { CliPluginInput } from "./registry";
-import { getRegisteredExporter, registeredTargets } from "./registry";
+import type { HookRuntimeManifest } from "./hook-bundler.ts";
+import { bundleHookRuntimeSource } from "./hook-bundler.ts";
+import type { CliPluginInput } from "./registry.ts";
+import { getRegisteredExporter, registeredTargets } from "./registry.ts";
 
 export interface BuildPluginFileOptions {
 	inputPath: string;
@@ -61,13 +61,16 @@ export async function buildPluginFile(
  * `.oiap/runtime/hooks.mjs`, which drops its imports and module-level helpers.
  * Rebuild that file from the plugin source so handlers run as written.
  */
+const RUNTIME_MANIFEST = /(^|\/)\.oiap\/runtime\/(?:[^/]+\/)?manifest\.json$/;
+
 export async function bundleHooksFromSource(
 	bundle: TargetBundle,
 	inputPath: string,
 	exportName?: string,
 ): Promise<TargetBundle> {
+	// Root runtimes and per-target ones (.oiap/runtime/<target>/) alike.
 	const manifests = bundle.files.filter((file) =>
-		file.path.endsWith(".oiap/runtime/manifest.json"),
+		RUNTIME_MANIFEST.test(file.path),
 	);
 
 	if (manifests.length === 0) {

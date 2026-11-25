@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	ProjectRule,
 	RenderedFile,
 	RuntimeModule,
@@ -26,8 +27,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -36,7 +39,10 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { GITHUB_COPILOT_CLI_TARGET, gitHubCopilotCliProfile } from "./profile";
+import {
+	GITHUB_COPILOT_CLI_TARGET,
+	gitHubCopilotCliProfile,
+} from "./profile.ts";
 
 export type GitHubCopilotCliPluginInput = PluginDefinition | PluginIr;
 
@@ -111,12 +117,38 @@ export function exportGitHubCopilotCli(
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: GitHubCopilotCliPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
+	const ir = isPluginIr(plugin) ? plugin : toPluginIr(plugin);
 
-	return toPluginIr(plugin);
+	return dropOrphanedInstructions(
+		ir,
+		scopeToTarget(ir, GITHUB_COPILOT_CLI_TARGET),
+	);
+}
+
+// An instruction that only backed a skill, agent or command scoped to another
+// host would otherwise be exported here as a standalone instruction skill.
+function dropOrphanedInstructions(full: PluginIr, scoped: PluginIr): PluginIr {
+	const before = referencedInstructionIds(full);
+	const after = referencedInstructionIds(scoped);
+
+	return {
+		...scoped,
+		instructions: scoped.instructions.filter(
+			(instruction) => !before.has(instruction.id) || after.has(instruction.id),
+		),
+	};
+}
+
+function referencedInstructionIds(ir: PluginIr): Set<string> {
+	return new Set([
+		...ir.skills.map((skill) => skill.instructions.id),
+		...ir.agents.map((agent) => agent.instructions.id),
+		...ir.commands.flatMap((command) =>
+			command.prompt ? [command.prompt.id] : [],
+		),
+	]);
 }
 
 function isPluginIr(plugin: GitHubCopilotCliPluginInput): plugin is PluginIr {
@@ -148,6 +180,13 @@ function renderGitHubCopilotCliFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Author files for this host (hand-written hook scripts, extra command
+		// files, ...) land at the plugin root, where plugin.json lives.
+		...renderPluginFiles(
+			ir.targetFiles?.[GITHUB_COPILOT_CLI_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Copilot CLI exposes the plugin root to hook processes (PLUGIN_ROOT env var)
@@ -186,6 +225,9 @@ function renderGitHubCopilotCliFiles(ir: PluginIr): RenderedFile[] {
 // Legacy (non-Agent Plugins 1.0) manifest: Agent Plugins 1.0 has a closed
 // schema without component path fields and does not define a commands or rules
 // file format, so OIAP emits the legacy manifest with explicit component paths.
+// The legacy manifest documents author ({name, email?, url?}), repository and
+// keywords, but no display name or logo field, so `displayName` and `logo` are
+// not emitted (the logo file still ships as a plugin resource).
 // https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
@@ -194,13 +236,15 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const hasAgents = ir.agents.length > 0;
 	const hooks = supportedCopilotCliHooks(ir.hooks);
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
 		category: manifest.categories[0],
 		skills: hasSkills ? "skills/" : undefined,
 		commands: hasCommands ? "commands/" : undefined,
@@ -208,8 +252,22 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		hooks: hooks.length > 0 ? "hooks.json" : undefined,
 		mcpServers: hasMcp ? ".mcp.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[GITHUB_COPILOT_CLI_TARGET],
+	);
 
 	return jsonFile("plugin.json", content, sourceRef(manifest.id, "manifest"));
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
 }
 
 function renderSkills(
@@ -223,14 +281,18 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs);
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					...skillInvocationFrontmatter(skill),
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -244,6 +306,19 @@ function renderSkills(
 				sourceRef(skill.id, "skill-file"),
 			),
 		];
+	});
+}
+
+// SKILL.md `user-invocable` (default true) and `disable-model-invocation`
+// (default false); only non-default values are written.
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+function skillInvocationFrontmatter(
+	skill: SkillAsset,
+): Record<string, unknown> {
+	return omitUndefined({
+		"user-invocable": skill.userInvocable === false ? false : undefined,
+		"disable-model-invocation":
+			skill.modelInvocable === false ? true : undefined,
 	});
 }
 
@@ -347,12 +422,30 @@ function renderAgent(
 			description: agent.description,
 			model: agent.model,
 			tools: agentTools(agent),
+			"include-custom-instructions": includeCustomInstructions(agent),
 			...targetMetadata(agent.targetMetadata),
 		},
 		body,
 	);
 
 	return textFile(agentPath(agent), content, sourceRef(agent.id, "agent"));
+}
+
+// `include-custom-instructions` controls whether a custom agent running as a
+// subagent reads the repository instruction files (copilot-instructions.md,
+// AGENTS.md, CLAUDE.md); it defaults to false. An agent the user selects with
+// `--agent` or `/agent` always reads them, so "exclude" is only partial and is
+// reported as a degradation.
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+// https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
+function includeCustomInstructions(
+	agent: AgentDefinition,
+): boolean | undefined {
+	if (agent.hostInstructions === "include") {
+		return true;
+	}
+
+	return agent.hostInstructions === "exclude" ? false : undefined;
 }
 
 function agentPath(agent: AgentDefinition): string {
@@ -570,6 +663,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `hooks.json`: generated hook configuration (`version: 1`), when present.",
 		"- `.mcp.json`: generated MCP server configuration, when present.",
 		"- Plugin resources and skill files: written at the plugin root and beside each SKILL.md, when present.",
+		"- Copilot CLI target files (`targetFiles`): written as-is relative to the plugin root, when present.",
 		"- `.oiap/`: hook runtime, source map, capability report, and policy evidence.",
 		"## Current Limitations",
 		"Copilot CLI plugins have no rules or custom-instruction surface, so OIAP rules and always-on instructions are exported as model-invoked skills. Hook results are written in Copilot CLI's documented hook output fields; modify and schedule decisions are not representable. Paths to bundled files in skill and agent text are relative to the file that contains them.",
@@ -663,6 +757,11 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 				"Copilot CLI plugins do not define a rules or custom-instruction component, so rules and standalone instructions are exported as model-invoked skills.",
 		});
 	}
+
+	// include-custom-instructions: false applies when the agent runs as a
+	// subagent, which is what plugin agents are for; a user who selects the
+	// agent with --agent or /agent still gets repository instructions. Claude
+	// Code's omitClaudeMd behaves the same way, so neither is reported.
 
 	const supportedHooks = supportedCopilotCliHooks(ir.hooks);
 	const nonPortableHookIds = runtimeUnsupportedHookIds(supportedHooks);
@@ -866,7 +965,7 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 	};
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",
@@ -907,13 +1006,7 @@ function targetInvocationName(invocation: Invocation): string {
 }
 
 function standaloneInstructions(ir: PluginIr): InstructionModule[] {
-	const referencedInstructions = new Set([
-		...ir.skills.map((skill) => skill.instructions.id),
-		...ir.agents.map((agent) => agent.instructions.id),
-		...ir.commands.flatMap((command) =>
-			command.prompt ? [command.prompt.id] : [],
-		),
-	]);
+	const referencedInstructions = referencedInstructionIds(ir);
 
 	return ir.instructions.filter(
 		(instruction) =>

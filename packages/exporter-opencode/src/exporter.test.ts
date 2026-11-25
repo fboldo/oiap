@@ -1,8 +1,14 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import type { PluginDefinition, RenderedFile, TargetBundle } from "@oiap/core";
-import { exportOpenCode } from "./exporter";
+import type {
+	AgentDefinition,
+	PluginDefinition,
+	RenderedFile,
+	SkillAsset,
+	TargetBundle,
+} from "@oiap/core";
+import { exportOpenCode } from "./exporter.ts";
 
 describe("exportOpenCode", () => {
 	test("renders an OpenCode project bundle", () => {
@@ -121,6 +127,148 @@ describe("exportOpenCode", () => {
 		expect(bundle.report.status).toBe("degraded");
 	});
 
+	test("maps invocation controls and degrades the ones OpenCode lacks", () => {
+		const plugin = {
+			...invocationPlugin,
+			skills: [
+				{ ...manualSkill, modelInvocable: false },
+				{ ...backgroundSkill, userInvocable: false },
+			],
+			agents: [{ ...isolatedAgent, hostInstructions: "exclude" }],
+		} satisfies PluginDefinition;
+		const bundle = exportOpenCode(plugin);
+		const degradations = bundle.report.degradedCapabilities;
+
+		expect(readText(bundle, ".opencode/skills/manual/SKILL.md")).toContain(
+			"disable-model-invocation: true",
+		);
+		expect(
+			readText(bundle, ".opencode/skills/background/SKILL.md"),
+		).not.toContain("disable-model-invocation");
+		expect(degradations).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "skills", target: "opencode" },
+				from: "userInvocable: false",
+			}),
+		);
+		expect(degradations).toContainEqual(
+			expect.objectContaining({
+				capability: { kind: "agents", target: "opencode" },
+				from: 'hostInstructions: "exclude"',
+			}),
+		);
+		expect(bundle.report.status).toBe("degraded");
+		expect(Object.keys(readJson<object>(bundle, "opencode.json"))).toEqual([
+			"$schema",
+		]);
+	});
+
+	test("reports ok when invocation controls are unset or mapped", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			skills: [{ ...manualSkill, modelInvocable: false }],
+			agents: [{ ...isolatedAgent, hostInstructions: "include" }],
+		});
+
+		expect(bundle.report.degradedCapabilities).toEqual([]);
+		expect(bundle.report.status).toBe("ok");
+	});
+
+	test("keeps targetMetadata over mapped skill keys", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			skills: [
+				{
+					...manualSkill,
+					modelInvocable: false,
+					targetMetadata: {
+						opencode: { "disable-model-invocation": false },
+					},
+				},
+			],
+		});
+
+		expect(readText(bundle, ".opencode/skills/manual/SKILL.md")).toContain(
+			"disable-model-invocation: false",
+		);
+	});
+
+	test("drops primitives limited to other targets", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			skills: [manualSkill, { ...backgroundSkill, targets: ["codex"] }],
+			agents: [{ ...isolatedAgent, targets: ["claude-code"] }],
+		});
+		const paths = bundle.files.map((file) => file.path);
+		const report = readText(bundle, ".oiap/capability-report.json");
+
+		expect(paths).toContain(".opencode/skills/manual/SKILL.md");
+		expect(paths).not.toContain(".opencode/skills/background/SKILL.md");
+		expect(paths).not.toContain(".opencode/agents/isolated.md");
+		expect(report).not.toContain("isolated");
+		expect(report).not.toContain("background");
+	});
+
+	test("merges manifest targetMetadata into opencode.json", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			manifest: {
+				...invocationPlugin.manifest,
+				targetMetadata: {
+					opencode: {
+						$schema: null,
+						autoupdate: false,
+						permission: { webfetch: "ask" },
+					},
+					codex: { ignored: true },
+				},
+			},
+		});
+		const config = readJson<Record<string, unknown>>(bundle, "opencode.json");
+
+		expect(config).not.toHaveProperty("$schema");
+		expect(config.autoupdate).toBe(false);
+		expect(config.permission).toEqual({ webfetch: "ask" });
+		expect(config).not.toHaveProperty("ignored");
+	});
+
+	test("emits target files at the bundle root", () => {
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			targetFiles: {
+				opencode: [
+					{
+						path: ".opencode/plugins/custom.js",
+						content: "export const Custom = async () => ({});\n",
+					},
+				],
+				codex: [{ path: "codex-only.txt", content: "no" }],
+			},
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(readText(bundle, ".opencode/plugins/custom.js")).toBe(
+			"export const Custom = async () => ({});\n",
+		);
+		expect(paths).not.toContain("codex-only.txt");
+	});
+
+	test("emits an in-place agent file unchanged", () => {
+		const content =
+			"---\ndescription: Hand written\nmode: primary\n---\n\nKeep me as is.\n";
+		const bundle = exportOpenCode({
+			...invocationPlugin,
+			agents: [
+				{
+					...isolatedAgent,
+					source: { file: "agents/isolated.md", content },
+				},
+			],
+		});
+
+		expect(readText(bundle, ".opencode/agents/isolated.md")).toBe(content);
+	});
+
 	test("reports duplicate bundle files", () => {
 		const bundle = exportOpenCode({
 			...bundleFilesPlugin,
@@ -136,6 +284,54 @@ describe("exportOpenCode", () => {
 		);
 	});
 });
+
+const manualSkill = {
+	id: "manual",
+	name: "manual",
+	description: "Run only when asked.",
+	instructions: { id: "manual-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const backgroundSkill = {
+	id: "background",
+	name: "background",
+	description: "Background knowledge.",
+	instructions: { id: "background-body", kind: "instruction" },
+} satisfies SkillAsset;
+
+const isolatedAgent = {
+	id: "isolated",
+	name: "isolated",
+	description: "Runs without project instructions.",
+	instructions: { id: "isolated-body", kind: "instruction" },
+} satisfies AgentDefinition;
+
+const invocationPlugin = {
+	manifest: {
+		id: "invocation",
+		name: "Invocation",
+		displayName: "Invocation Controls",
+		version: "1.0.0",
+		description: "Skill and agent invocation controls.",
+		keywords: ["review"],
+		author: { name: "Ada", email: "ada@example.com" },
+		repository: "https://github.com/example/invocation",
+		categories: [],
+		supportedTargets: ["opencode"],
+	},
+	instructions: [
+		{ id: "manual-body", purpose: "command", triggers: [], body: "Manual." },
+		{
+			id: "background-body",
+			purpose: "always_on",
+			triggers: [],
+			body: "Background.",
+		},
+		{ id: "isolated-body", purpose: "agent", triggers: [], body: "Isolated." },
+	],
+	skills: [manualSkill, backgroundSkill],
+	agents: [isolatedAgent],
+} satisfies PluginDefinition;
 
 const bundleFilesPlugin = {
 	manifest: {

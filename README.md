@@ -222,11 +222,14 @@ bunx @oiap/cli sync --check    # CI: exit 1 if the committed files are out of da
 installs from git (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI,
 VS Code Copilot, OpenClaw, Antigravity):
 
-- Hosts that only install the repository root (Gemini CLI, Antigravity,
-  OpenClaw) go at the root and share files such as `skills/` when their copies
-  match.
-- Other hosts share the root when no host would load another host's files, and
-  move to `plugins/<target>/` otherwise. `--layout plugins` always uses
+- Hosts that only install the repository root (Gemini CLI, Antigravity, and
+  the Agent Plugins `plugin.json`) go at the root and share files such as
+  `skills/` when their copies match. When the `agent-plugins` target is on,
+  GitHub Copilot CLI and VS Code read its root `plugin.json`, so it serves them
+  and sync writes no separate Copilot plugin.
+- Other hosts share the root when no host would load another host's files and
+  none of their files would overwrite one you wrote, and move to
+  `plugins/<target>/` otherwise. `--layout plugins` always uses
   `plugins/<target>/` for them.
 - It writes the marketplace catalogs that point each host at its plugin
   (`.claude-plugin/marketplace.json`, `.agents/plugins/marketplace.json`,
@@ -236,10 +239,16 @@ VS Code Copilot, OpenClaw, Antigravity):
   `--force`, and it leaves your `README.md` alone.
 - Versions come from `manifest.version`, so every host manifest stays in
   lockstep.
-- OpenClaw's native plugin needs its own `package.json` and entry file at the
-  repository root. If your repository already has a `package.json`, sync stops
-  rather than overwrite it; leave OpenClaw out with `--target`, or publish it
-  from a separate repository.
+- Converting a repository that already has hand-written manifests? Run the
+  first sync with `--adopt`: it takes those files over in place, keeping their
+  indentation.
+- If your repository already keeps skills in a folder, use them in place with
+  `skills: skillsFrom("skills")`. Sync leaves those `SKILL.md` files exactly as
+  you wrote them and lets every host that reads `skills/` share them.
+- OpenClaw's native plugin needs its own `package.json` and entry file. When
+  your repository already has a `package.json`, OpenClaw moves to
+  `plugins/openclaw/`; its `git:` install only reads the repository root, so
+  users install it from a checkout or a published package instead.
 
 Check the files on every pull request with the OIAP GitHub Action. It installs
 your dependencies, runs `oiap sync --check`, annotates degraded or unsupported
@@ -349,6 +358,7 @@ The CLI currently registers these exporters:
 
 | Target ID | Package | Output focus |
 | --- | --- | --- |
+| `agent-plugins` | [@oiap/exporter-agent-plugins](packages/exporter-agent-plugins) | Agent Plugins 1.0 open manifest (`plugin.json`, `skills/`, `mcp.json`) read by Copilot CLI, VS Code, Codex, Cursor and OpenClaw |
 | `antigravity` | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity workspace bundle artifacts |
 | `claude-code` | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code-oriented plugin bundle artifacts |
 | `cline` | [@oiap/exporter-cline](packages/exporter-cline) | Cline project rules, skills, agents, hooks, and MCP artifacts |
@@ -372,6 +382,7 @@ For researched and planned platform coverage, see the
 | [@oiap/runtime](packages/runtime) | Portable hook runtime bundle generation used by target exporters |
 | [@oiap/cli](packages/cli) | CLI for building target bundles from plugin definition files |
 | [install-agent-plugin](packages/install-agent-plugin) | Consumer CLI for discovering installable OIAP declarations in repositories |
+| [@oiap/exporter-agent-plugins](packages/exporter-agent-plugins) | Agent Plugins 1.0 exporter |
 | [@oiap/exporter-antigravity](packages/exporter-antigravity) | Google Antigravity exporter |
 | [@oiap/exporter-claude-code](packages/exporter-claude-code) | Claude Code exporter |
 | [@oiap/exporter-cline](packages/exporter-cline) | Cline exporter |

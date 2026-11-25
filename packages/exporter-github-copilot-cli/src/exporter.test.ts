@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PluginDefinition, TargetBundle } from "@oiap/core";
-import { exportGitHubCopilotCli } from "./exporter";
+import { exportGitHubCopilotCli } from "./exporter.ts";
 
 const target = "github-copilot-cli";
 
@@ -221,6 +221,114 @@ describe("exportGitHubCopilotCli", () => {
 		expect(bundle.report.status).toBe("degraded");
 	});
 
+	test("maps manifest author, repository and keywords; skips displayName and logo", () => {
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			manifest: {
+				...bundleFilesPlugin.manifest,
+				displayName: "Bundle Files Display",
+				keywords: ["review", "docs"],
+				categories: ["productivity"],
+				logo: "assets/logo.svg",
+				author: { name: "Ada", url: "https://example.com/ada" },
+				repository: "https://github.com/example/bundle-files",
+			},
+			resources: [
+				...bundleFilesPlugin.resources,
+				{ path: "assets/logo.svg", content: "<svg/>" },
+			],
+		});
+		const manifest = readJson<Record<string, unknown>>(bundle, "plugin.json");
+
+		expect(manifest.author).toEqual({
+			name: "Ada",
+			url: "https://example.com/ada",
+		});
+		expect(manifest.repository).toBe("https://github.com/example/bundle-files");
+		expect(manifest.keywords).toEqual(["review", "docs"]);
+		expect(manifest.category).toBe("productivity");
+		expect(manifest).not.toHaveProperty("displayName");
+		expect(manifest).not.toHaveProperty("logo");
+		expect(readText(bundle, "assets/logo.svg")).toBe("<svg/>");
+	});
+
+	test("maps skill invocation flags with targetMetadata winning", () => {
+		const skill = first<(typeof bundleFilesPlugin.skills)[number]>(
+			bundleFilesPlugin.skills,
+			"skill",
+		);
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			agents: [],
+			skills: [
+				{ ...skill, id: "user-only", modelInvocable: false },
+				{ ...skill, id: "model-only", userInvocable: false, files: [] },
+				{
+					...skill,
+					id: "overridden",
+					userInvocable: false,
+					modelInvocable: true,
+					files: [],
+					targetMetadata: { [target]: { "user-invocable": true } },
+				},
+			],
+		});
+
+		const userOnly = readText(bundle, "skills/user-only/SKILL.md");
+		expect(userOnly).toContain("disable-model-invocation: true");
+		expect(userOnly).not.toContain("user-invocable");
+
+		const modelOnly = readText(bundle, "skills/model-only/SKILL.md");
+		expect(modelOnly).toContain("user-invocable: false");
+		expect(modelOnly).not.toContain("disable-model-invocation");
+
+		const overridden = readText(bundle, "skills/overridden/SKILL.md");
+		expect(overridden).toContain("user-invocable: true");
+		expect(overridden).not.toContain("disable-model-invocation");
+		expect(
+			bundle.report.degradedCapabilities.map(
+				(degradation) => degradation.capability.kind,
+			),
+		).not.toContain("skills");
+	});
+
+	test("maps agent hostInstructions", () => {
+		const agent = { ...bundleFilesAgent, targetMetadata: undefined };
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			instructions: bundleFilesPlugin.instructions.map((instruction) => ({
+				...instruction,
+				body: "No tokens.",
+			})),
+			agents: [
+				{ ...agent, id: "isolated", hostInstructions: "exclude" },
+				{ ...agent, id: "repo-aware", hostInstructions: "include" },
+				{ ...agent, id: "plain" },
+			],
+		});
+		const excluded = readText(bundle, "agents/isolated.agent.md");
+		expect(excluded).toContain("include-custom-instructions: false");
+		const included = readText(bundle, "agents/repo-aware.agent.md");
+		expect(included).toContain("include-custom-instructions: true");
+		expect(readText(bundle, "agents/plain.agent.md")).not.toContain(
+			"include-custom-instructions",
+		);
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
+	test("does not degrade agents that include host instructions", () => {
+		const bundle = exportGitHubCopilotCli({
+			...bundleFilesPlugin,
+			agents: [{ ...bundleFilesAgent, hostInstructions: "include" }],
+		});
+
+		expect(
+			bundle.report.degradedCapabilities.map((degradation) => degradation.from),
+		).not.toContain("agent-without-host-instructions");
+	});
+
 	test("keeps explicit agent tools over access", () => {
 		const bundle = exportGitHubCopilotCli({
 			...bundleFilesPlugin,
@@ -263,6 +371,96 @@ describe("exportGitHubCopilotCli", () => {
 
 		expect(bundle.report.status).toBe("unsupported");
 		expect(issueCodes).toContain("unresolved-path-token");
+	});
+	test("drops primitives scoped to other hosts", () => {
+		const bundle = exportGitHubCopilotCli({
+			...sampleCopilotCliPlugin,
+			instructions: [
+				...sampleCopilotCliPlugin.instructions,
+				{
+					id: "claude-only-body",
+					purpose: "workflow",
+					triggers: [],
+					body: "Claude only.",
+				},
+			],
+			skills: [
+				...sampleCopilotCliPlugin.skills,
+				{
+					id: "claude-only",
+					name: "Claude Only",
+					description: "Only for Claude Code.",
+					instructions: { id: "claude-only-body", kind: "instruction" },
+					targets: ["claude-code"],
+				},
+			],
+			agents: sampleCopilotCliPlugin.agents.map((agent) => ({
+				...agent,
+				targets: ["claude-code"],
+			})),
+		});
+		const paths = bundle.files.map((file) => file.path);
+
+		expect(paths).not.toContain("skills/claude-only/SKILL.md");
+		expect(paths).not.toContain("agents/reviewer.agent.md");
+		expect(JSON.stringify(bundle.files)).not.toContain("claude-only");
+		expect(
+			bundle.report.mappedCapabilities.some(
+				(capability) => capability.kind === "agents",
+			),
+		).toBe(false);
+		expect(
+			readJson<CopilotCliPluginManifest>(bundle, "plugin.json").agents,
+		).toBeUndefined();
+	});
+
+	test("merges manifest targetMetadata into plugin.json", () => {
+		const bundle = exportGitHubCopilotCli({
+			...sampleCopilotCliPlugin,
+			manifest: {
+				...sampleCopilotCliPlugin.manifest,
+				targetMetadata: {
+					[target]: { version: null, category: "devtools", extra: { a: 1 } },
+					"claude-code": { name: "not-for-copilot" },
+				},
+			},
+		});
+		const manifest = readJson<Record<string, unknown>>(bundle, "plugin.json");
+
+		expect(manifest.version).toBeUndefined();
+		expect("version" in manifest).toBe(false);
+		expect(manifest.category).toBe("devtools");
+		expect(manifest.extra).toEqual({ a: 1 });
+		expect(manifest.name).toBe("sample-copilot-cli");
+	});
+
+	test("writes targetFiles at the plugin root", () => {
+		const bundle = exportGitHubCopilotCli({
+			...sampleCopilotCliPlugin,
+			targetFiles: {
+				[target]: [
+					{
+						path: "scripts/check.sh",
+						content: "#!/bin/sh\necho ok\n",
+						mode: 0o755,
+					},
+				],
+				"claude-code": [{ path: "scripts/claude.sh", content: "claude" }],
+			},
+		});
+		const file = bundle.files.find(
+			(candidate) => candidate.path === "scripts/check.sh",
+		);
+
+		expect(file?.content).toBe("#!/bin/sh\necho ok\n");
+		expect(file?.mode).toBe(0o755);
+		expect(file?.source?.primitiveKind).toBe("target-file");
+		expect(
+			bundle.files.some((candidate) => candidate.path === "scripts/claude.sh"),
+		).toBe(false);
+		expect(
+			bundle.report.issues.filter((issue) => issue.severity === "error"),
+		).toEqual([]);
 	});
 });
 

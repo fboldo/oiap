@@ -1,6 +1,6 @@
-import type { HookCapabilities } from "./capabilities";
-import type { JsonObject, JsonValue, TargetId } from "./primitives";
-import type { HookResult } from "./results";
+import type { HookCapabilities } from "./capabilities.ts";
+import type { JsonObject, JsonValue, TargetId } from "./primitives.ts";
+import type { HookResult } from "./results.ts";
 
 export type Awaitable<TValue> = TValue | Promise<TValue>;
 
@@ -44,6 +44,8 @@ export interface HookDefinition<
 	kind: "oiap.hook";
 	id: TId;
 	event: E;
+	/** Limit this hook to these targets; omitted means every target. */
+	targets?: string[];
 	handler: HookHandler<E>;
 	match?: HookMatcher<E>;
 	timeoutMs?: number;

@@ -2,7 +2,7 @@ import type {
 	JsonPatchOperation,
 	ScheduledJob,
 	ScheduledJobRef,
-} from "./primitives";
+} from "./primitives.ts";
 
 export interface DecisionAnnotation {
 	key: string;

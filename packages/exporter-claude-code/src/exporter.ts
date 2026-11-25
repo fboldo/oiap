@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	RenderedFile,
 	RuntimeModule,
 	SkillAsset,
@@ -25,8 +26,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -35,7 +38,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { CLAUDE_CODE_TARGET, claudeCodeProfile } from "./profile";
+import { CLAUDE_CODE_TARGET, claudeCodeProfile } from "./profile.ts";
 
 export type ClaudeCodePluginInput = PluginDefinition | PluginIr;
 
@@ -108,12 +111,12 @@ export function exportClaudeCode(plugin: ClaudeCodePluginInput): TargetBundle {
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: ClaudeCodePluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
-
-	return toPluginIr(plugin);
+	return scopeToTarget(
+		isPluginIr(plugin) ? plugin : toPluginIr(plugin),
+		CLAUDE_CODE_TARGET,
+	);
 }
 
 function isPluginIr(plugin: ClaudeCodePluginInput): plugin is PluginIr {
@@ -153,6 +156,13 @@ function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
 			"",
 			sourceRef(getManifest(ir).id, "resource"),
 		),
+		// Hand-written host files (hooks scripts, extra commands, ...) at the
+		// plugin root, before path resolution and duplicate checks.
+		...renderPluginFiles(
+			ir.targetFiles?.[CLAUDE_CODE_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
+		),
 	];
 	const pluginFiles = resolveBundlePaths(generatedFiles, {
 		resourceRoot: "",
@@ -185,17 +195,30 @@ function renderClaudeCodeFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// plugin.json documents displayName, keywords, author ({name, email?, url?}),
+// repository (string), homepage and license. There is no `logo` key; `icon`
+// is the path of an image inside the plugin, used by Anthropic's directory
+// listing (Claude Code itself does not read it).
+// https://code.claude.com/docs/en/plugins-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		$schema: "https://json.schemastore.org/claude-code-plugin-manifest.json",
 		name: slug(manifest.id),
+		displayName: manifest.displayName,
 		version: manifest.version,
 		description: manifest.description,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
+		icon: manifest.logo ? `./${resourcePath(manifest.logo)}` : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[CLAUDE_CODE_TARGET],
+	);
 
 	return jsonFile(
 		".claude-plugin/plugin.json",
@@ -204,28 +227,60 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	);
 }
 
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
+}
+
+// Resources are written at the bundle root.
+function resourcePath(path: string): string {
+	return path.replace(/^(\.\/)+/, "");
+}
+
 function renderSkill(
 	skill: SkillAsset,
 	instructions: InstructionModule[],
 ): RenderedFile {
 	const instruction = findInstruction(skill.instructions.id, instructions);
 	const body =
-		instruction?.body ??
+		(instruction ? instructionBody(instruction) : undefined) ??
 		`Skill instruction reference not found: ${skill.instructions.id}`;
-	const content = withFrontmatter(
-		{
-			name: skill.name,
-			description: skill.description,
-			...targetMetadata(skill.targetMetadata),
-		},
-		body,
-	);
+	// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+	const content =
+		skill.source?.skillFile ??
+		withFrontmatter(
+			{
+				name: skill.name,
+				description: skill.description,
+				...skillInvocationFrontmatter(skill),
+				...targetMetadata(skill.targetMetadata),
+			},
+			body,
+		);
 
 	return textFile(
 		`skills/${slug(skill.id)}/SKILL.md`,
 		content,
 		sourceRef(skill.id, "skill"),
 	);
+}
+
+// SKILL.md `disable-model-invocation` (default false) and `user-invocable`
+// (default true); only non-default values are written.
+// https://code.claude.com/docs/en/skills
+function skillInvocationFrontmatter(
+	skill: SkillAsset,
+): Record<string, unknown> {
+	return omitUndefined({
+		"disable-model-invocation":
+			skill.modelInvocable === false ? true : undefined,
+		"user-invocable": skill.userInvocable === false ? false : undefined,
+	});
 }
 
 function renderCommand(
@@ -244,7 +299,7 @@ function renderCommand(
 		`# ${commandName}`,
 		invocation?.helpText ??
 			`Command invocation reference not found: ${command.invocation.id}`,
-		prompt?.body,
+		prompt ? instructionBody(prompt) : undefined,
 		...(invocation?.examples ?? []).map((example) => `- ${example}`),
 	]
 		.filter(Boolean)
@@ -263,13 +318,27 @@ function renderCommand(
 	);
 }
 
+// `omitClaudeMd: true` starts the subagent without the user, project and local
+// CLAUDE.md files (managed policy files still load); plugin agents support it.
+// It is ignored when the agent runs as the main session agent via --agent.
+// https://code.claude.com/docs/en/sub-agents#supported-frontmatter-fields
+// https://code.claude.com/docs/en/plugins/components
 function renderAgent(
 	agent: AgentDefinition,
 	instructions: InstructionModule[],
 ): RenderedFile {
+	// An agent from agentsFrom() keeps its Markdown file exactly as written.
+	if (agent.source) {
+		return textFile(
+			agentPath(agent),
+			agent.source.content,
+			sourceRef(agent.id, "agent"),
+		);
+	}
+
 	const instruction = findInstruction(agent.instructions.id, instructions);
 	const body =
-		instruction?.body ??
+		(instruction ? instructionBody(instruction) : undefined) ??
 		`Agent instruction reference not found: ${agent.instructions.id}`;
 	const content = withFrontmatter(
 		{
@@ -277,6 +346,7 @@ function renderAgent(
 			description: agent.description,
 			model: agent.model,
 			tools: agentTools(agent),
+			omitClaudeMd: agent.hostInstructions === "exclude" ? true : undefined,
 			...targetMetadata(agent.targetMetadata),
 		},
 		body,
@@ -379,9 +449,13 @@ function renderMcpFiles(tools: ToolSurface[]): RenderedFile[] {
 	return [renderMcpConfig(tools)];
 }
 
+// Claude Code .mcp.json servers: stdio (command, args, env) or remote
+// (type http|sse, url, headers). https://code.claude.com/docs/en/mcp
 function renderMcpConfig(tools: ToolSurface[]): RenderedFile {
 	const mcpServers = Object.fromEntries(
-		tools.filter((tool) => tool.server).map((tool) => [tool.id, tool.server]),
+		tools.flatMap((tool) =>
+			tool.server ? [[tool.id, claudeMcpServer(tool)]] : [],
+		),
 	);
 
 	return jsonFile(
@@ -389,6 +463,45 @@ function renderMcpConfig(tools: ToolSurface[]): RenderedFile {
 		{ mcpServers },
 		sourceRef("claude-settings", "settings"),
 	);
+}
+
+function claudeMcpServer(tool: ToolSurface): Record<string, unknown> {
+	const server = tool.server ?? {};
+
+	if (tool.transport === "mcp-http" || tool.transport === "mcp-sse") {
+		return omitUndefined({
+			type: tool.transport === "mcp-sse" ? "sse" : "http",
+			url: server.url ?? server.httpUrl,
+			headers: server.headers,
+		});
+	}
+
+	return omitUndefined({
+		command: server.command,
+		args: server.args,
+		env: server.env,
+	});
+}
+
+/** McpServer fields Claude Code's .mcp.json has no place for. */
+function unmappedMcpFields(tools: ToolSurface[]): string[] {
+	const fields = new Set<string>();
+
+	for (const tool of tools) {
+		for (const field of [
+			"cwd",
+			"includeTools",
+			"excludeTools",
+			"auth",
+			"required",
+		] as const) {
+			if (tool.server?.[field] !== undefined) {
+				fields.add(field);
+			}
+		}
+	}
+
+	return [...fields].sort();
 }
 
 function renderPolicyEvidence(policies: PermissionPolicy[]): RenderedFile {
@@ -424,6 +537,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `agents/`: generated agent assets, when present.",
 		"- `hooks/hooks.json`: generated hook configuration, when present.",
 		"- `.mcp.json`: generated MCP server configuration, when present.",
+		'- Target files (`targetFiles["claude-code"]`) are copied at the plugin root, relative to this directory.',
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"## Current Limitations",
 		"TypeScript hook functions are emitted as a generated raw-JS OIAP runtime. Hook handlers must be portable function expressions or target modules are reported as degraded metadata.",
@@ -514,6 +628,17 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: "not-emitted",
 			reason:
 				"Claude Code plugins do not load root CLAUDE.md context; rules must be represented as skills, agents, hooks, or target-specific plugin files.",
+		});
+	}
+
+	const droppedMcpFields = unmappedMcpFields(ir.tools);
+
+	if (droppedMcpFields.length > 0) {
+		degradations.push({
+			capability: { kind: "mcp", target: CLAUDE_CODE_TARGET },
+			from: "oiap-mcp-server",
+			to: "claude-mcp-server",
+			reason: `Claude Code .mcp.json has no field for ${droppedMcpFields.join(", ")}; those settings were left out.`,
 		});
 	}
 
@@ -681,7 +806,7 @@ function validateClaudeCodeBundle(bundle: TargetBundle): ValidationIssue[] {
 	return issues;
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",
@@ -706,6 +831,10 @@ function findInvocation(
 	invocations: Invocation[],
 ): Invocation | undefined {
 	return invocations.find((invocation) => invocation.id === id);
+}
+
+function instructionBody(instruction: InstructionModule): string {
+	return instruction.hostOverrides?.[CLAUDE_CODE_TARGET] ?? instruction.body;
 }
 
 function targetInvocationName(invocation: Invocation): string {

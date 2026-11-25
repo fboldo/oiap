@@ -8,7 +8,7 @@ bun run oiap build ./oiap.plugin.ts
 ```
 
 By default, the CLI builds every registered target into `dist/oiap/<target>`. The
-current registered targets are Antigravity, Claude Code, Cline, Codex, Cursor,
+current registered targets are Agent Plugins 1.0, Antigravity, Claude Code, Cline, Codex, Cursor,
 Gemini CLI, GitHub Copilot CLI, OpenClaw, OpenCode, VS Code Copilot, and
 Windsurf.
 
@@ -43,9 +43,10 @@ bun run oiap sync --layout plugins      # movable hosts under plugins/<target>/
 bun run oiap sync --target claude-code,codex
 ```
 
-Hosts that only install the repository root (Gemini CLI, Antigravity, OpenClaw)
-always go at the root. Other hosts share the root unless one host would load
-another host's files, in which case they move to `plugins/<target>/`.
+Hosts that only install the repository root (Gemini CLI, Antigravity) always go
+at the root. Other hosts share the root unless one host would load another
+host's files or a file would overwrite one you wrote, in which case they move to
+`plugins/<target>/`.
 `.oiap/sync.json` records the generated files so later syncs remove stale ones;
 files that a previous sync did not write are never overwritten without
 `--force`.

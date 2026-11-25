@@ -12,6 +12,7 @@ import type {
 	PermissionPolicy,
 	PluginDefinition,
 	PluginIr,
+	PluginManifest,
 	ProjectRule,
 	RenderedFile,
 	RuntimeModule,
@@ -26,8 +27,10 @@ import {
 	bundleFileFindings,
 	defineExporter,
 	duplicateFileIssues,
+	mergeTargetMetadata,
 	renderPluginFiles,
 	resolveBundlePaths,
+	scopeToTarget,
 	toPluginIr,
 	unresolvedTokenIssues,
 } from "@oiap/core";
@@ -36,7 +39,7 @@ import {
 	renderHookRuntimeFiles,
 	unsupportedHookIds as runtimeUnsupportedHookIds,
 } from "@oiap/runtime";
-import { VSCODE_COPILOT_TARGET, vsCodeCopilotProfile } from "./profile";
+import { VSCODE_COPILOT_TARGET, vsCodeCopilotProfile } from "./profile.ts";
 
 export type VsCodeCopilotPluginInput = PluginDefinition | PluginIr;
 
@@ -111,12 +114,35 @@ export function exportVsCodeCopilot(
 	};
 }
 
+// Primitives limited to other hosts with `targets` never reach this exporter.
 function normalizePluginInput(plugin: VsCodeCopilotPluginInput): PluginIr {
-	if (isPluginIr(plugin)) {
-		return plugin;
-	}
+	const ir = isPluginIr(plugin) ? plugin : toPluginIr(plugin);
 
-	return toPluginIr(plugin);
+	return dropOrphanedInstructions(ir, scopeToTarget(ir, VSCODE_COPILOT_TARGET));
+}
+
+// An instruction that only backed a skill, agent or command scoped to another
+// host would otherwise be exported here as a standalone instruction skill.
+function dropOrphanedInstructions(full: PluginIr, scoped: PluginIr): PluginIr {
+	const before = referencedInstructionIds(full);
+	const after = referencedInstructionIds(scoped);
+
+	return {
+		...scoped,
+		instructions: scoped.instructions.filter(
+			(instruction) => !before.has(instruction.id) || after.has(instruction.id),
+		),
+	};
+}
+
+function referencedInstructionIds(ir: PluginIr): Set<string> {
+	return new Set([
+		...ir.skills.map((skill) => skill.instructions.id),
+		...ir.agents.map((agent) => agent.instructions.id),
+		...ir.commands.flatMap((command) =>
+			command.prompt ? [command.prompt.id] : [],
+		),
+	]);
 }
 
 function isPluginIr(plugin: VsCodeCopilotPluginInput): plugin is PluginIr {
@@ -148,6 +174,13 @@ function renderVsCodeCopilotFiles(ir: PluginIr): RenderedFile[] {
 			ir.resources,
 			RESOURCE_ROOT,
 			sourceRef(getManifest(ir).id, "resource"),
+		),
+		// Author files for this host (hand-written hook scripts, extra command
+		// files, ...) land at the plugin root, where plugin.json lives.
+		...renderPluginFiles(
+			ir.targetFiles?.[VSCODE_COPILOT_TARGET],
+			"",
+			sourceRef(getManifest(ir).id, "target-file"),
 		),
 	];
 	// Copilot-format plugins expand ${PLUGIN_ROOT} only in hook commands and MCP
@@ -182,6 +215,12 @@ function renderVsCodeCopilotFiles(ir: PluginIr): RenderedFile[] {
 	];
 }
 
+// Copilot-format plugin.json (no `$schema`) uses the Copilot CLI plugin
+// manifest fields: author ({name, email?, url?}), repository and keywords are
+// documented; there is no display name or logo field, so `displayName` and
+// `logo` are not emitted (the logo file still ships as a plugin resource).
+// https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
 function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const manifest = getManifest(ir);
 	const hasSkills = hasSkillOutput(ir);
@@ -189,13 +228,15 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 	const hasAgents = ir.agents.length > 0;
 	const hooks = supportedVsCodeHooks(ir.hooks);
 	const hasMcp = ir.tools.some((tool) => tool.server);
-	const content = omitUndefined({
+	const generated = omitUndefined({
 		name: slug(manifest.id, "oiap-plugin"),
 		description: manifest.description,
 		version: manifest.version,
+		author: manifest.author ? omitUndefined({ ...manifest.author }) : undefined,
 		homepage: manifest.homepage,
+		repository: manifest.repository,
 		license: manifest.license,
-		keywords: manifest.categories.length > 0 ? manifest.categories : undefined,
+		keywords: manifestKeywords(manifest),
 		category: manifest.categories[0],
 		skills: hasSkills ? "skills/" : undefined,
 		commands: hasCommands ? "commands/" : undefined,
@@ -203,8 +244,22 @@ function renderPluginManifest(ir: PluginIr): RenderedFile {
 		hooks: hooks.length > 0 ? "hooks.json" : undefined,
 		mcpServers: hasMcp ? ".mcp.json" : undefined,
 	});
+	const content = mergeTargetMetadata(
+		generated,
+		manifest.targetMetadata?.[VSCODE_COPILOT_TARGET],
+	);
 
 	return jsonFile("plugin.json", content, sourceRef(manifest.id, "manifest"));
+}
+
+function manifestKeywords(
+	manifest: Pick<PluginManifest, "keywords" | "categories">,
+): string[] | undefined {
+	if (manifest.keywords && manifest.keywords.length > 0) {
+		return manifest.keywords;
+	}
+
+	return manifest.categories.length > 0 ? manifest.categories : undefined;
 }
 
 function renderSkills(
@@ -218,14 +273,18 @@ function renderSkills(
 			? instructionBody(instruction)
 			: `Skill instruction reference not found: ${skill.instructions.id}`;
 		const skillSlug = reserveSlug(skill.id, usedSkillSlugs);
-		const content = withFrontmatter(
-			{
-				name: skillSlug,
-				description: skill.description,
-				...targetMetadata(skill.targetMetadata),
-			},
-			skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
-		);
+		// A skill from skillsFrom() keeps its SKILL.md exactly as written.
+		const content =
+			skill.source?.skillFile ??
+			withFrontmatter(
+				{
+					name: skillSlug,
+					description: skill.description,
+					...skillInvocationFrontmatter(skill),
+					...targetMetadata(skill.targetMetadata),
+				},
+				skill.name === skillSlug ? body : `# ${skill.name}\n\n${body}`,
+			);
 
 		return [
 			textFile(
@@ -239,6 +298,20 @@ function renderSkills(
 				sourceRef(skill.id, "skill-file"),
 			),
 		];
+	});
+}
+
+// SKILL.md `user-invocable` (default true: listed in the / menu) and
+// `disable-model-invocation` (default false); only non-default values are
+// written.
+// https://code.visualstudio.com/docs/copilot/customization/agent-skills
+function skillInvocationFrontmatter(
+	skill: SkillAsset,
+): Record<string, unknown> {
+	return omitUndefined({
+		"user-invocable": skill.userInvocable === false ? false : undefined,
+		"disable-model-invocation":
+			skill.modelInvocable === false ? true : undefined,
 	});
 }
 
@@ -532,6 +605,7 @@ function renderPackageReadme(ir: PluginIr): RenderedFile {
 		"- `hooks.json`: generated hook configuration, when present.",
 		"- `.mcp.json`: generated MCP server configuration, when present.",
 		"- Plugin resources and skill files: written at the plugin root and beside each SKILL.md, when present.",
+		"- VS Code target files (`targetFiles`): written as-is relative to the plugin root, when present.",
 		"- `.oiap/`: source map, capability report, and degraded runtime metadata.",
 		"## Current Limitations",
 		`Generated hook commands locate the bundled runner through \`${PLUGIN_ROOT}\`, which Copilot-format plugins expand in hook commands. OIAP rules and always-on instructions are represented as model-invoked skills because plugin-scoped custom instruction files are not documented for this format.`,
@@ -623,6 +697,23 @@ function collectDegradedCapabilities(ir: PluginIr): CapabilityDegradation[] {
 			to: "model-invoked-skill",
 			reason:
 				"VS Code Copilot plugin manifests do not document plugin-scoped custom instruction files, so rules and standalone instructions are exported as non-user-invocable skills.",
+		});
+	}
+
+	// `include-custom-instructions` is a Copilot-schema field that VS Code does
+	// not forward when it converts agent files (plugin agents included), and the
+	// Local schema has no equivalent, so "exclude" is not emitted.
+	// https://code.visualstudio.com/docs/agents/reference/custom-agent-file-reference
+	const excludedInstructionAgents = ir.agents.filter(
+		(agent) => agent.hostInstructions === "exclude",
+	);
+
+	if (excludedInstructionAgents.length > 0) {
+		degradations.push({
+			capability: { kind: "agents", target: VSCODE_COPILOT_TARGET },
+			from: "agent-without-host-instructions",
+			to: "agent-with-host-instructions",
+			reason: `${excludedInstructionAgents.length} agent(s) exclude host instructions, but VS Code custom agents have no documented control for it (include-custom-instructions is not forwarded), so the workspace custom instructions still load for them.`,
 		});
 	}
 
@@ -792,7 +883,7 @@ function createBundleManifest(ir: PluginIr, files: RenderedFile[]) {
 	};
 }
 
-function getManifest(ir: PluginIr) {
+function getManifest(ir: PluginIr): PluginManifest {
 	return (
 		ir.manifest ?? {
 			id: "oiap-plugin",
@@ -830,13 +921,7 @@ function targetInvocationName(invocation: Invocation): string {
 }
 
 function standaloneInstructions(ir: PluginIr): InstructionModule[] {
-	const referencedInstructions = new Set([
-		...ir.skills.map((skill) => skill.instructions.id),
-		...ir.agents.map((agent) => agent.instructions.id),
-		...ir.commands.flatMap((command) =>
-			command.prompt ? [command.prompt.id] : [],
-		),
-	]);
+	const referencedInstructions = referencedInstructionIds(ir);
 
 	return ir.instructions.filter(
 		(instruction) =>

@@ -24,7 +24,7 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json",
 		"check": "bun run typecheck",
 		"cli": "bun src/cli.ts",
 		"test": "bun test src",
@@ -33,6 +33,7 @@
 	"dependencies": {
 		"@oiap/cli": "workspace:*",
 		"@oiap/core": "workspace:*",
+		"@oiap/exporter-agent-plugins": "workspace:*",
 		"@oiap/exporter-antigravity": "workspace:*",
 		"@oiap/exporter-claude-code": "workspace:*",
 		"@oiap/exporter-cline": "workspace:*",
